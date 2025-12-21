@@ -36,10 +36,10 @@ Sonir is a modular, physics-based audio visualizer engine written in Python. It 
   <video src="https://github.com/user-attachments/assets/96d18fc1-8b7b-410f-9b51-fad4c8d5ce9f" width="100%" controls preload="metadata"></video>
 
   <h3>Crystal Caverns (Stem Mode)</h3>
-  <video src="examples/Videos/crystal_caverns.mp4" width="100%" controls preload="metadata"></video>
+  <video src="https://github.com/user-attachments/assets/cdd473af-ab06-4710-93ba-5702d62a9a15" width="100%" controls preload="metadata"></video>
   
   <h3>Cyber Chase (Stem Mode)</h3>
-  <video src="examples/Videos/cyber_chase.mp4" width="100%" controls preload="metadata"></video>
+  <video src="https://github.com/user-attachments/assets/8276acdc-4a3e-4bf2-bb45-953abdf393bd" width="100%" controls preload="metadata"></video>
 </div>
 
 ## Installation
