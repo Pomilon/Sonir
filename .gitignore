@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# Media
+*.mp3
+*.wav
+*.mp4
+*.png
+!examples/**/*
+
+# Project specific
+separated/
+sonir_frames_tmp/
+legacy/
+output.mp4
+
+# OS
+.DS_Store
+Thumbs.db
