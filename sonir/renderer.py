@@ -3,21 +3,42 @@ import numpy as np
 import os
 import shutil
 import librosa
+import math
+import random
 from .config import Config
 
 class SonirRenderer:
-    def __init__(self, tracks_data, audio_path, width=Config.WIDTH, height=Config.HEIGHT):
+    def __init__(self, tracks_data, audio_path, width=None, height=None):
         self.tracks_data = tracks_data
         self.audio_path = audio_path
-        self.width = width
-        self.height = height
+        self.width = width if width is not None else Config.WIDTH
+        self.height = height if height is not None else Config.HEIGHT
+        
+        # Audio Duration (for UI)
+        y_tmp, sr_tmp = librosa.load(audio_path, sr=None)
+        self.duration = librosa.get_duration(y=y_tmp, sr=sr_tmp)
+        
+        # UI Font
+        if pygame.font.get_init() is False: pygame.font.init()
+        self.font = pygame.font.SysFont("arial", 14)
         
         # Initialize render state for each track
         # tracks_data structure: { name: { timeline: [], color: ..., ... } }
         self.render_state = {}
         for name in tracks_data:
+            # Generate static stars for this viewport
+            stars = []
+            for _ in range(Config.STAR_COUNT):
+                # Store as relative coordinates (0.0-1.0) so they scale with viewport
+                stars.append([random.random(), random.random(), random.uniform(0.5, 2.0)]) # x, y, size
+                
             self.render_state[name] = {
-                "cam": np.array([0.0, 0.0])
+                "cam": np.array([0.0, 0.0]),
+                "particles": [], # List of [pos, vel, life, color]
+                "trail": [],     # List of positions [x, y]
+                "shake": 0.0,    # Current shake intensity
+                "last_hit_idx": -1, # To prevent double triggering on same wall
+                "stars": stars
             }
             
         # Determine layout
@@ -37,6 +58,22 @@ class SonirRenderer:
             rects[order[1]] = pygame.Rect(0, h, w, h)
             rects[order[2]] = pygame.Rect(w, 0, w, h)
             rects[order[3]] = pygame.Rect(w, h, w, h)
+        elif num_tracks == 5:
+            # 5-Band Layout: 4 Corners + 1 Center Overlay
+            w_half, h_half = self.width // 2, self.height // 2
+            
+            # The background quadrants
+            # 0: TL, 1: TR, 2: BL, 3: BR
+            rects[track_names[0]] = pygame.Rect(0, 0, w_half, h_half)
+            rects[track_names[1]] = pygame.Rect(w_half, 0, w_half, h_half)
+            rects[track_names[2]] = pygame.Rect(0, h_half, w_half, h_half)
+            rects[track_names[3]] = pygame.Rect(w_half, h_half, w_half, h_half)
+            
+            # The Center Focus (Track 4)
+            # Size: 50% of screen width/height?
+            cw, ch = int(self.width * 0.5), int(self.height * 0.5)
+            cx, cy = (self.width - cw) // 2, (self.height - ch) // 2
+            rects[track_names[4]] = pygame.Rect(cx, cy, cw, ch)
         else:
             # Fallback for other counts: just stack horizontally
             w = self.width // num_tracks
@@ -45,7 +82,7 @@ class SonirRenderer:
                 
         return rects
 
-    def render_frame(self, surface, audio_time):
+    def render_frame(self, surface, audio_time, dt=0.016):
         """Draws a single frame to the provided surface."""
         surface.fill(Config.COLOR_BG)
         
@@ -54,89 +91,212 @@ class SonirRenderer:
             state = self.render_state[name]
             
             # Subsurface for clipping
-            sub = surface.subsurface(rect)
+            # Clip rect to screen bounds to prevent crash if layout is slightly off
+            safe_rect = rect.clip(surface.get_rect())
+            if safe_rect.width <= 0 or safe_rect.height <= 0:
+                continue
+                
+            sub = surface.subsurface(safe_rect)
             
-            self._draw_viewport(sub, rect, track, state, audio_time)
+            # Draw Viewport Content (Background + World)
+            self._draw_viewport(sub, safe_rect, track, state, audio_time, dt)
             
             # Draw Border
-            pygame.draw.rect(surface, Config.COLOR_SQUARE_BORDER, rect, 2)
+            pygame.draw.rect(surface, Config.COLOR_SQUARE_BORDER, safe_rect, 2)
+            
+        # Draw UI Overlay (Global)
+        if Config.ENABLE_UI:
+            # Progress Bar
+            bar_height = 6
+            progress = min(1.0, audio_time / self.duration) if self.duration > 0 else 0
+            pygame.draw.rect(surface, (30, 30, 30), (0, self.height - bar_height, self.width, bar_height))
+            pygame.draw.rect(surface, (100, 200, 255), (0, self.height - bar_height, self.width * progress, bar_height))
+            
+            # Text
+            time_str = f"{int(audio_time // 60)}:{int(audio_time % 60):02d} / {int(self.duration // 60)}:{int(self.duration % 60):02d}"
+            txt = self.font.render(time_str, True, (200, 200, 200))
+            surface.blit(txt, (10, self.height - bar_height - 20))
 
-    def _draw_viewport(self, surface, rect, track, state, audio_time):
+    def _draw_viewport(self, surface, rect, track, state, audio_time, dt=0.016):
+        # --- 1. DRAW BACKGROUND ---
+        bg_color = list(Config.COLOR_BG)
+        
+        # Dynamic Pulse
+        if Config.ENABLE_DYNAMIC_BG and Config.ENABLE_SHAKE:
+            # Brighten BG based on shake (proxy for intensity)
+            pulse = min(Config.BG_PULSE_AMT, state["shake"] * Config.BG_PULSE_AMT)
+            bg_color = (min(255, bg_color[0]+pulse), min(255, bg_color[1]+pulse), min(255, bg_color[2]+pulse))
+            
+        surface.fill(bg_color)
+        
+        # Draw Stars
+        if Config.ENABLE_DYNAMIC_BG:
+            w, h = rect.width, rect.height
+            for star in state["stars"]:
+                # star: [x_rel, y_rel, size]
+                # Simple parallax: Move stars slightly based on camera? 
+                # For now, static stars to avoid motion sickness, just "space" feel
+                sx = int(star[0] * w)
+                sy = int(star[1] * h)
+                c = int(100 + pulse * 10) # Stars pulse slightly too
+                pygame.draw.circle(surface, (c, c, c), (sx, sy), star[2])
+
         timeline = track["timeline"]
         if not timeline: return
         
         center = np.array([rect.width/2, rect.height/2])
-        
-        # Using binary search on onsets to find index
         idx = np.searchsorted(track['onsets'], audio_time) - 1
-        
-        # Clamp index
         if idx < 0: idx = 0
         
-        # Interpolate camera
+        # --- SHAKE & PARTICLES UPDATE ---
+        
+        # Decay shake
+        if Config.ENABLE_SHAKE:
+            state["shake"] = max(0, state["shake"] - Config.SHAKE_DECAY * dt)
+            
+        # Update particles
+        if Config.ENABLE_PARTICLES:
+            alive_particles = []
+            for p in state["particles"]:
+                # p = [pos, vel, life, color]
+                p[0] += p[1] * dt # Move
+                p[2] -= Config.PARTICLE_DECAY * dt # Decay life
+                if p[2] > 0:
+                    alive_particles.append(p)
+            state["particles"] = alive_particles
+
+        # --- CAMERA ---
+
         target_cam = state["cam"]
+        sq_world = np.array([0.0, 0.0]) # Default
+        velocity = np.array([0.0, 0.0])
         
         if 0 <= idx < len(timeline):
             seg = timeline[idx]
             duration = seg['t1'] - seg['t0']
-            if duration > 0:
-                progress = (audio_time - seg['t0']) / duration
-            else:
-                progress = 0
-                
+            progress = (audio_time - seg['t0']) / duration if duration > 0 else 0
             sq_world = seg['p0'] + (seg['p1'] - seg['p0']) * progress
             
-            # Calculate desired camera position (center focused on square)
-            target_cam = center - sq_world
+            # Calculate Velocity for Cinema Lookahead
+            velocity = (seg['p1'] - seg['p0']) / duration if duration > 0 else np.array([0.0, 0.0])
             
-        # Smooth camera movement
+            # Cinema Camera Logic
+            lookahead = np.array([0.0, 0.0])
+            if Config.ENABLE_CINEMA_CAM:
+                # Look ahead in direction of movement
+                # We want the square to be 'pushed' back, so we move camera 'forward'
+                lookahead = -velocity * Config.CAM_LOOKAHEAD
+                
+            target_cam = center - sq_world + lookahead
+            
+            # CHECK HIT (Trigger Effects)
+            # Only trigger if progress is near end AND we haven't triggered this index yet
+            if progress > Config.SHAKE_THRESHOLD and idx != state["last_hit_idx"]:
+                state["last_hit_idx"] = idx
+                
+                # Add Shake
+                if Config.ENABLE_SHAKE:
+                    state["shake"] = min(1.0, state["shake"] + 0.6)
+                
+                # Spawn Particles
+                if Config.ENABLE_PARTICLES:
+                    # Burst direction is roughly opposite to wall normal? 
+                    # Or simple explosion. Simple radial explosion is safer.
+                    hit_pos = seg['p1']
+                    for _ in range(Config.PARTICLE_COUNT):
+                        angle = random.uniform(0, 2*math.pi)
+                        speed = random.uniform(50, Config.PARTICLE_SPEED)
+                        vel = np.array([math.cos(angle)*speed, math.sin(angle)*speed])
+                        state["particles"].append([hit_pos.copy(), vel, 1.0, track["color"]])
+
+        # Smooth camera
         state["cam"] += (target_cam - state["cam"]) * Config.LERP_FACTOR
-        cam = state["cam"]
         
-        # Draw Geometry
-        # Draw a range of walls around current time
+        # Apply Shake Offset to Camera
+        final_cam = state["cam"].copy()
+        if Config.ENABLE_SHAKE and state["shake"] > 0:
+            shake_amt = state["shake"] * state["shake"] * Config.SHAKE_INTENSITY
+            offset = np.array([
+                random.uniform(-shake_amt, shake_amt),
+                random.uniform(-shake_amt, shake_amt)
+            ])
+            final_cam += offset
+    # --- DRAWING ---
+    
+        # 1. Update & Draw Trail
+        if Config.ENABLE_TRAILS and 0 <= idx < len(timeline):
+            # Add current pos
+            state["trail"].append(sq_world.copy())
+            if len(state["trail"]) > Config.TRAIL_LENGTH:
+                state["trail"].pop(0)
+                
+            # Draw trail
+            if len(state["trail"]) > 1:
+                # We need points in screen space
+                screen_points = [p + final_cam for p in state["trail"]]
+                # Draw as multiple segments to fade opacity? 
+                # Pygame lines don't do alpha well. 
+                # Let's just draw a polyline with the track color but thinner.
+                pygame.draw.lines(surface, track["color"], False, screen_points, 3)
+
+        # 2. Draw Walls
         draw_range_start = max(0, idx - 5)
         draw_range_end = min(len(timeline), idx + 15)
         
         for i in range(draw_range_start, draw_range_end):
             item = timeline[i]
-            p1 = item['w1'] + cam
-            p2 = item['w2'] + cam
+            p1 = item['w1'] + final_cam
+            p2 = item['w2'] + final_cam
             
-            # Styling
             is_active = (i == idx)
-            
             if is_active and 0 <= idx < len(timeline):
-                # Recalculate progress for this specific segment
                 seg = timeline[idx]
                 dur = seg['t1'] - seg['t0']
                 prog = (audio_time - seg['t0']) / dur if dur > 0 else 0
-                
-                if prog > 0.92: # Hit Flash
+                if prog > Config.SHAKE_THRESHOLD: 
                     col, w = (255, 255, 255), 12
                 else:
                     col, w = track["color"], 7
             elif i < idx:
-                col, w = (40, 42, 50), 2 # Past
+                col, w = (40, 42, 50), 2 
             else:
-                # Future walls - dim version of track color
                 c = track["color"]
                 col, w = (c[0]//2, c[1]//2, c[2]//2), 4
-                
+            
+            # Glow Effect (Cheap)
+            if Config.ENABLE_GLOW and is_active:
+                # Draw a wider, darker line underneath
+                glow_col = (max(0, col[0]-100), max(0, col[1]-100), max(0, col[2]-100))
+                pygame.draw.line(surface, glow_col, p1, p2, w + 6)
+            
             pygame.draw.line(surface, col, p1, p2, w)
             
-        # Draw Square
+        # 3. Draw Square
         if 0 <= idx < len(timeline):
-            # Recalculate square pos
-            seg = timeline[idx]
-            dur = seg['t1'] - seg['t0']
-            prog = (audio_time - seg['t0']) / dur if dur > 0 else 0
-            sq_world = seg['p0'] + (seg['p1'] - seg['p0']) * prog
-            
-            sq_pos = sq_world + cam
+            sq_pos = sq_world + final_cam
             sz = Config.SQUARE_SIZE
+            # Draw glow for square
+            if Config.ENABLE_GLOW:
+                pygame.draw.rect(surface, (100, 100, 100), 
+                                (sq_pos[0]-(sz+6)/2, sq_pos[1]-(sz+6)/2, sz+6, sz+6))
+                                
             pygame.draw.rect(surface, Config.COLOR_SQUARE, 
                              (sq_pos[0]-sz/2, sq_pos[1]-sz/2, sz, sz))
+                             
+        # 4. Draw Particles
+        if Config.ENABLE_PARTICLES:
+            for p in state["particles"]:
+                # p = [pos, vel, life, color]
+                pos = p[0] + final_cam
+                life = p[2]
+                # Fade alpha... Pygame draws with color. 
+                # We can simulate fade by shrinking or darkening.
+                # Darkening:
+                base_col = p[3]
+                col = (int(base_col[0]*life), int(base_col[1]*life), int(base_col[2]*life))
+                sz = max(1, int(Config.PARTICLE_SIZE * life))
+                
+                pygame.draw.rect(surface, col, (pos[0], pos[1], sz, sz))
 
 
     def run_realtime(self):
@@ -162,7 +322,11 @@ class SonirRenderer:
                 if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                     running = False
             
-            self.render_frame(screen, audio_time)
+            # Update screen surface
+                    screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
+            
+            dt = clock.get_time() / 1000.0
+            self.render_frame(screen, audio_time, dt)
             pygame.display.flip()
             clock.tick(Config.FPS)
             
@@ -187,7 +351,7 @@ class SonirRenderer:
         
         for i in range(total_frames):
             audio_time = i * dt
-            self.render_frame(screen, audio_time)
+            self.render_frame(screen, audio_time, dt)
             
             fname = os.path.join(output_dir, f"frame_{i:05d}.png")
             pygame.image.save(screen, fname)

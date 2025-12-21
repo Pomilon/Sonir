@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 from .config import Config
-from .analyzer import StemMode, PianoMode, MultiBandMode, TwoBandMode
+from .analyzer import StemMode, PianoMode, MultiBandMode, TwoBandMode, KickBassMode, SpectrumMode, ViolinMode, FiveBandMode, DrumsMode
 from .core import SonirCore
 from .renderer import SonirRenderer
 from .video import VideoGenerator
@@ -10,11 +10,32 @@ from .video import VideoGenerator
 def main():
     parser = argparse.ArgumentParser(description="Sonir: Modular Audio Visualizer Engine")
     parser.add_argument("--audio", required=True, help="Path to the input audio file")
-    parser.add_argument("--mode", choices=["stem", "piano", "multiband", "twoband"], default="stem", help="Visualization mode")
+    parser.add_argument("--mode", choices=["stem", "piano", "multiband", "twoband", "kickbass", "spectrum", "violin", "fiveband", "drums"], default="stem", help="Visualization mode")
+    parser.add_argument("--theme", choices=["neon", "cyberpunk", "noir", "sunset", "matrix"], default="neon", help="Color theme")
+    parser.add_argument("--aspect", choices=["16:9", "9:16", "1:1", "4:3", "21:9"], default="16:9", help="Output aspect ratio (default: 16:9)")
     parser.add_argument("--export", action="store_true", help="Render to video file instead of realtime preview")
     parser.add_argument("--output", default="output.mp4", help="Output filename for export")
+    parser.add_argument("--no-shake", action="store_true", help="Disable screen shake effects")
+    parser.add_argument("--no-particles", action="store_true", help="Disable hit particle effects")
+    parser.add_argument("--no-trails", action="store_true", help="Disable motion trails")
+    parser.add_argument("--no-glow", action="store_true", help="Disable bloom/glow effects")
+    parser.add_argument("--no-bg", action="store_true", help="Disable dynamic background (stars/pulse)")
+    parser.add_argument("--no-cam", action="store_true", help="Disable cinema camera lookahead")
+    parser.add_argument("--no-ui", action="store_true", help="Disable UI overlay")
     
     args = parser.parse_args()
+    
+    # Configure Resolution & FX
+    Config.set_resolution(args.aspect)
+    Config.apply_theme(args.theme)
+    
+    if args.no_shake: Config.ENABLE_SHAKE = False
+    if args.no_particles: Config.ENABLE_PARTICLES = False
+    if args.no_trails: Config.ENABLE_TRAILS = False
+    if args.no_glow: Config.ENABLE_GLOW = False
+    if args.no_bg: Config.ENABLE_DYNAMIC_BG = False
+    if args.no_cam: Config.ENABLE_CINEMA_CAM = False
+    if args.no_ui: Config.ENABLE_UI = False
     
     if not os.path.exists(args.audio):
         print(f"Error: Audio file '{args.audio}' not found.")
@@ -26,7 +47,12 @@ def main():
         "stem": StemMode,
         "piano": PianoMode,
         "multiband": MultiBandMode,
-        "twoband": TwoBandMode
+        "twoband": TwoBandMode,
+        "kickbass": KickBassMode,
+        "spectrum": SpectrumMode,
+        "violin": ViolinMode,
+        "fiveband": FiveBandMode,
+        "drums": DrumsMode
     }
     
     analyzer_cls = analyzers[args.mode]
