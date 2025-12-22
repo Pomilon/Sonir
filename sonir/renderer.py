@@ -133,9 +133,6 @@ class SonirRenderer:
         if Config.ENABLE_DYNAMIC_BG:
             w, h = rect.width, rect.height
             for star in state["stars"]:
-                # star: [x_rel, y_rel, size]
-                # Simple parallax: Move stars slightly based on camera? 
-                # For now, static stars to avoid motion sickness, just "space" feel
                 sx = int(star[0] * w)
                 sy = int(star[1] * h)
                 c = int(100 + pulse * 10) # Stars pulse slightly too
@@ -200,8 +197,6 @@ class SonirRenderer:
                 
                 # Spawn Particles
                 if Config.ENABLE_PARTICLES:
-                    # Burst direction is roughly opposite to wall normal? 
-                    # Or simple explosion. Simple radial explosion is safer.
                     hit_pos = seg['p1']
                     for _ in range(Config.PARTICLE_COUNT):
                         angle = random.uniform(0, 2*math.pi)
@@ -234,9 +229,6 @@ class SonirRenderer:
             if len(state["trail"]) > 1:
                 # We need points in screen space
                 screen_points = [p + final_cam for p in state["trail"]]
-                # Draw as multiple segments to fade opacity? 
-                # Pygame lines don't do alpha well. 
-                # Let's just draw a polyline with the track color but thinner.
                 pygame.draw.lines(surface, track["color"], False, screen_points, 3)
 
         # 2. Draw Walls

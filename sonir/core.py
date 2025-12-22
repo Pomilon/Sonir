@@ -29,6 +29,10 @@ class SonirCore:
         if onsets[0] > 0:
             onsets = np.insert(onsets, 0, 0.0)
             
+        # Sanitize onsets: Remove duplicates and sort (though likely sorted)
+        # We need strictly increasing values to avoid dt=0
+        onsets = np.unique(onsets)
+        
         timeline = []
         curr_p = np.array([0.0, 0.0])
         
@@ -40,8 +44,6 @@ class SonirCore:
             t0 = onsets[i]
             t1 = onsets[i+1]
             dt = t1 - t0
-            
-            if dt <= 0: continue
             
             # Calculate hit position
             hit_p = curr_p + curr_d * (speed * dt)
