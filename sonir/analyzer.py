@@ -2,6 +2,7 @@ import os
 import subprocess
 import librosa
 import numpy as np
+import json
 from .config import Config
 
 class AudioAnalyzer:
@@ -105,12 +106,14 @@ class FrequencyBandMode(AudioAnalyzer):
     """
     Base class for modes that split audio into frequency bands using STFT.
     """
-    def __init__(self, audio_path, bands):
+    def __init__(self, audio_path, bands, custom_colors=None):
         """
         bands: List of tuples (name, low_freq, high_freq, wait_val)
+        custom_colors: Optional dict {name: (r, g, b)}
         """
         super().__init__(audio_path)
         self.bands = bands
+        self.custom_colors = custom_colors if custom_colors else {}
 
     def analyze(self):
         print(f"Analyzing {self.__class__.__name__}...")
@@ -139,10 +142,14 @@ class FrequencyBandMode(AudioAnalyzer):
                 wait=wait_val
             )
             
-            # Handle alias color keys (e.g., 'top' -> 'high')
-            col = Config.TRACK_COLORS.get(name, (255, 255, 255))
-            if name == "top" and "top" not in Config.TRACK_COLORS:
-                col = Config.TRACK_COLORS.get("high", (255, 255, 255))
+            # Determine Color: Custom -> Theme Key -> Fallback
+            if name in self.custom_colors:
+                col = self.custom_colors[name]
+            else:
+                col = Config.TRACK_COLORS.get(name, (255, 255, 255))
+                # Handle alias color keys (e.g., 'top' -> 'high')
+                if name == "top" and "top" not in Config.TRACK_COLORS:
+                    col = Config.TRACK_COLORS.get("high", (255, 255, 255))
 
             results[name] = {
                 "onsets": onsets,
@@ -203,6 +210,41 @@ class PercussionMode(FrequencyBandMode):
             ("snare", 150, 2000, 1),
             ("hats", 2000, 10000, 1)
         ])
+
+class CustomMode(FrequencyBandMode):
+    def __init__(self, audio_path, config_path):
+        self.config_path = config_path
+        bands = []
+        custom_colors = {}
+        
+        try:
+            with open(config_path, 'r') as f:
+                data = json.load(f)
+            
+            for b in data.get("bands", []):
+                name = b.get("name", "unknown")
+                low = b.get("low", 20)
+                high = b.get("high", 20000)
+                wait = b.get("wait", 2)
+                bands.append((name, low, high, wait))
+                
+                if "color" in b:
+                    try:
+                        custom_colors[name] = tuple(b["color"])
+                    except Exception:
+                        print(f"Warning: Invalid color format for band '{name}'. Using default.")
+                        
+        except Exception as e:
+            print(f"Error loading custom config from '{config_path}': {e}")
+            print("Using fallback fallback bands.")
+            bands = [("default", 20, 20000, 2)] # Fallback
+            
+        if not bands:
+             print("Warning: No bands found in config. Using full spectrum fallback.")
+             bands = [("default", 20, 20000, 2)]
+
+        super().__init__(audio_path, bands, custom_colors=custom_colors)
+
 
 class StringMode(AudioAnalyzer):
     def analyze(self):

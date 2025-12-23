@@ -7,7 +7,8 @@ import shutil
 from .config import Config
 from .analyzer import (
     StemMode, PianoMode, QuadBandMode, DualBandMode, ElectronicMode, 
-    TripleBandMode, StringMode, CinematicMode, PercussionMode, DynamicMode
+    TripleBandMode, StringMode, CinematicMode, PercussionMode, DynamicMode,
+    CustomMode
 )
 from .core import SonirCore
 from .renderer import SonirRenderer
@@ -20,9 +21,10 @@ def main():
     # Updated Mode Choices
     mode_choices = [
         "stem", "dynamic", "piano", "string", "percussion", 
-        "dual", "triple", "quad", "electronic", "cinematic"
+        "dual", "triple", "quad", "electronic", "cinematic", "custom"
     ]
     parser.add_argument("--mode", choices=mode_choices, default="stem", help="Visualization mode")
+    parser.add_argument("--config", help="Path to custom configuration file (required for --mode custom)")
     
     parser.add_argument("--theme", choices=["neon", "cyberpunk", "noir", "sunset", "matrix"], default="neon", help="Color theme")
     parser.add_argument("--aspect", choices=["16:9", "9:16", "1:1", "4:3", "21:9"], default="16:9", help="Output aspect ratio (default: 16:9)")
@@ -56,21 +58,29 @@ def main():
 
     # 1. Analyze Audio
     print(f"Initializing {args.mode} mode analysis...")
-    analyzers = {
-        "stem": StemMode,
-        "piano": PianoMode,
-        "quad": QuadBandMode,
-        "dual": DualBandMode,
-        "electronic": ElectronicMode,
-        "triple": TripleBandMode,
-        "string": StringMode,
-        "cinematic": CinematicMode,
-        "percussion": PercussionMode,
-        "dynamic": DynamicMode
-    }
     
-    analyzer_cls = analyzers[args.mode]
-    analyzer = analyzer_cls(args.audio)
+    if args.mode == "custom":
+        if not args.config:
+            print("Error: --config argument is required for custom mode.")
+            sys.exit(1)
+        if not os.path.exists(args.config):
+            print(f"Error: Configuration file '{args.config}' not found.")
+            sys.exit(1)
+        analyzer = CustomMode(args.audio, args.config)
+    else:
+        analyzers = {
+            "stem": StemMode,
+            "piano": PianoMode,
+            "quad": QuadBandMode,
+            "dual": DualBandMode,
+            "electronic": ElectronicMode,
+            "triple": TripleBandMode,
+            "string": StringMode,
+            "cinematic": CinematicMode,
+            "percussion": PercussionMode,
+            "dynamic": DynamicMode
+        }
+        analyzer = analyzers[args.mode](args.audio)
     
     try:
         raw_tracks = analyzer.analyze()

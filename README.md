@@ -30,6 +30,7 @@ It has come to my attention that automated accounts (such as `yobo1889`) are scr
   - **Frequency Modes**: `Dual` (2-band), `Triple` (3-band), and `Quad` (4-band) splitters.
   - **Genre Specific**: Dedicated modes for `Electronic` (Kick/Top), `Percussion` (Kick/Snare/Hats), `String` (Violin focus), and `Piano`.
   - **Cinematic**: A 5-viewport center-focus layout.
+  - **Custom**: User-defined frequency bands and colors via JSON config.
 - **High-Quality Visuals**:
   - **"Juice" Effects**: Screen Shake, Impact Particles, Motion Trails, and Neon Glow.
   - **Dynamic Backgrounds**: Pulsing starfields and reactive environments.
@@ -122,7 +123,37 @@ python main.py --audio "song.mp3" --mode cinematic --aspect 9:16 --theme cyberpu
 python main.py --audio "jazz.mp3" --mode triple --aspect 1:1 --theme noir
 ```
 
-### 3. Export to Video
+### 3. Custom Configuration
+
+You can define your own frequency bands and colors using **Custom Mode**. Create a JSON file (e.g., `my_config.json`):
+
+```json
+{
+  "bands": [
+    {
+      "name": "deep_bass",
+      "low": 20,
+      "high": 100,
+      "wait": 2,
+      "color": [255, 0, 0]
+    },
+    {
+      "name": "sparkle",
+      "low": 8000,
+      "high": 16000,
+      "wait": 1,
+      "color": [200, 255, 255]
+    }
+  ]
+}
+```
+
+Run with:
+```bash
+python main.py --audio "song.mp3" --mode custom --config my_config.json
+```
+
+### 4. Export to Video
 
 Add `--export` to render a high-quality MP4. You can customize the encoder (`--encoder`) and quality (`--crf`).
 
