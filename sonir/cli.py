@@ -13,6 +13,8 @@ from .analyzer import (
 from .core import SonirCore
 from .renderer import SonirRenderer
 from .video import VideoGenerator
+from .game import RhythmGame
+from .gd import GeometryDashGame
 
 def main():
     parser = argparse.ArgumentParser(description="Sonir: Modular Audio Visualizer Engine")
@@ -25,6 +27,11 @@ def main():
     ]
     parser.add_argument("--mode", choices=mode_choices, default="stem", help="Visualization mode")
     parser.add_argument("--config", help="Path to custom configuration file (required for --mode custom)")
+    
+    # Gamification
+    parser.add_argument("--gamify", choices=["rhythm", "gd"], help="Convert visualization into a game level")
+    parser.add_argument("--modifiers", nargs="+", choices=["focus", "death", "chaos"], help="Game modifiers (e.g., focus, death, chaos)")
+    parser.add_argument("--autoplay", action="store_true", help="Let the game play itself (for testing or visualization)")
     
     parser.add_argument("--theme", choices=["neon", "cyberpunk", "noir", "sunset", "matrix"], default="neon", help="Color theme")
     parser.add_argument("--aspect", choices=["16:9", "9:16", "1:1", "4:3", "21:9"], default="16:9", help="Output aspect ratio (default: 16:9)")
@@ -119,7 +126,15 @@ def main():
 
     # 3. Render
     try:
-        renderer = SonirRenderer(processed_tracks, args.audio)
+        # Determine Renderer Class
+        if args.gamify == "rhythm":
+            print(f"Starting Rhythm Game (Mode: {args.gamify}, Modifiers: {args.modifiers})...")
+            renderer = RhythmGame(processed_tracks, args.audio, modifiers=args.modifiers, autoplay=args.autoplay)
+        elif args.gamify == "gd":
+            print(f"Starting Geometry Dash Mode...")
+            renderer = GeometryDashGame(processed_tracks, args.audio, autoplay=args.autoplay)
+        else:
+            renderer = SonirRenderer(processed_tracks, args.audio)
         
         if args.export:
             # Check for FFmpeg

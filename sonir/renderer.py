@@ -38,7 +38,8 @@ class SonirRenderer:
                 pass
                 
         try:
-            self.font = pygame.font.SysFont("arial", 14)
+            # Use default system font (None), size 24 for better readability
+            self.font = pygame.font.Font(None, 24)
         except Exception:
             self.font = None
         
@@ -140,6 +141,67 @@ class SonirRenderer:
             time_str = f"{int(audio_time // 60)}:{int(audio_time % 60):02d} / {int(self.duration // 60)}:{int(self.duration % 60):02d}"
             txt = self.font.render(time_str, True, (200, 200, 200))
             surface.blit(txt, (10, self.height - bar_height - 20))
+            
+        # Game Overlay Hook
+        self._draw_overlay(surface)
+
+    def _draw_overlay(self, surface):
+        """Hook for subclasses to draw game HUDs."""
+        pass
+
+    def _handle_input(self, events, audio_time, paused, handle_pause=True):
+        """Handle input events. Returns (running, new_paused, offset_time_change)."""
+        running = True
+        new_paused = paused
+        offset_change = 0.0
+        
+        for event in events:
+            if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                running = False
+            
+            elif event.type == pygame.VIDEORESIZE:
+                # Check if size actually changed to avoid spamming set_mode (Linux/Window focus fix)
+                if (event.w != self.width or event.h != self.height) and not pygame.display.get_surface().get_flags() & pygame.FULLSCREEN:
+                    self.width, self.height = event.w, event.h
+                    pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
+                    self.rects = self._calculate_layout(len(self.tracks_data))
+            
+            elif event.type == pygame.KEYDOWN:
+                # Toggle Fullscreen
+                if event.key == pygame.K_f:
+                    screen = pygame.display.get_surface()
+                    is_fs = screen.get_flags() & pygame.FULLSCREEN
+                    if is_fs:
+                        pygame.display.set_mode((Config.WIDTH, Config.HEIGHT), pygame.RESIZABLE)
+                        self.width, self.height = Config.WIDTH, Config.HEIGHT
+                    else:
+                        Config.WIDTH, Config.HEIGHT = self.width, self.height
+                        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+                        self.width, self.height = screen.get_size()
+                    self.rects = self._calculate_layout(len(self.tracks_data))
+                
+                # Toggle UI
+                elif event.key == pygame.K_h:
+                    Config.ENABLE_UI = not Config.ENABLE_UI
+                    
+                # Pause / Resume
+                elif event.key == pygame.K_SPACE and handle_pause:
+                    new_paused = not paused
+                        
+                # Reset
+                elif event.key == pygame.K_r:
+                    pygame.mixer.music.play(start=0)
+                    offset_change = -999999 # Signal reset
+                    new_paused = False
+                    
+                # Seek
+                elif event.key == pygame.K_RIGHT:
+                    offset_change = 5.0
+                    
+                elif event.key == pygame.K_LEFT:
+                    offset_change = -5.0
+
+        return running, new_paused, offset_change
 
     def _draw_viewport(self, surface, rect, track, state, audio_time, dt=0.016):
         # --- 1. DRAW BACKGROUND ---
@@ -255,6 +317,8 @@ class SonirRenderer:
                     col, w = (255, 255, 255), 12
                 else:
                     col, w = track["color"], 7
+            elif i == idx + 1: # Next Wall Prediction
+                col, w = (255, 200, 50), 4 # Gold/Orange Hint
             elif i < idx:
                 col, w = (40, 42, 50), 2 
             else:
@@ -327,67 +391,26 @@ class SonirRenderer:
                 else:
                     audio_time = 0
                 
-                # Loop if audio ends (optional, or just stop)
-                if not pygame.mixer.music.get_busy() and not paused:
-                     # Auto-restart or end? Let's just hold at end.
-                     pass
-
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
-                        running = False
-                    
-                    elif event.type == pygame.VIDEORESIZE:
-                        if not screen.get_flags() & pygame.FULLSCREEN:
-                            self.width, self.height = event.w, event.h
-                            screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
-                            self.rects = self._calculate_layout(len(self.tracks_data))
-                    
-                    elif event.type == pygame.KEYDOWN:
-                        # Toggle Fullscreen
-                        if event.key == pygame.K_f:
-                            is_fs = screen.get_flags() & pygame.FULLSCREEN
-                            if is_fs:
-                                screen = pygame.display.set_mode((Config.WIDTH, Config.HEIGHT), pygame.RESIZABLE)
-                                self.width, self.height = Config.WIDTH, Config.HEIGHT
-                            else:
-                                # Save windowed size
-                                Config.WIDTH, Config.HEIGHT = self.width, self.height
-                                screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-                                self.width, self.height = screen.get_size()
-                            self.rects = self._calculate_layout(len(self.tracks_data))
+                # Input Handling via Helper
+                events = pygame.event.get()
+                running, new_paused, offset_change = self._handle_input(events, audio_time, paused)
+                
+                if new_paused != paused:
+                    if new_paused:
+                        pygame.mixer.music.pause()
+                    else:
+                        pygame.mixer.music.unpause()
+                    paused = new_paused
                         
-                        # Toggle UI
-                        elif event.key == pygame.K_h:
-                            Config.ENABLE_UI = not Config.ENABLE_UI
-                            
-                        # Pause / Resume
-                        elif event.key == pygame.K_SPACE:
-                            if paused:
-                                pygame.mixer.music.unpause()
-                                paused = False
-                            else:
-                                pygame.mixer.music.pause()
-                                paused = True
-                                
-                        # Reset
-                        elif event.key == pygame.K_r:
-                            pygame.mixer.music.play(start=0)
-                            offset_time = 0.0
-                            paused = False
-                            
-                        # Seek
-                        elif event.key == pygame.K_RIGHT:
-                            new_time = audio_time + 5.0
-                            if new_time > self.duration: new_time = self.duration
-                            pygame.mixer.music.play(start=new_time)
-                            offset_time = new_time
-                            paused = False
-                            
-                        elif event.key == pygame.K_LEFT:
-                            new_time = max(0.0, audio_time - 5.0)
-                            pygame.mixer.music.play(start=new_time)
-                            offset_time = new_time
-                            paused = False
+                if offset_change != 0.0:
+                    if offset_change == -999999: # Reset signal
+                         offset_time = 0.0
+                         paused = False
+                    else:
+                        new_time = max(0.0, min(self.duration, audio_time + offset_change))
+                        pygame.mixer.music.play(start=new_time)
+                        offset_time = new_time
+                        paused = False
 
                 dt = clock.get_time() / 1000.0
                 self.render_frame(screen, audio_time, dt)
