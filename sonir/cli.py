@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 from .config import Config
-from .analyzer import StemMode, PianoMode, MultiBandMode, TwoBandMode, KickBassMode, SpectrumMode, ViolinMode, FiveBandMode, DrumsMode
+from .analyzer import StemMode, PianoMode, MultiBandMode, TwoBandMode, KickBassMode, SpectrumMode, ViolinMode, FiveBandMode, DrumsMode, DynamicMode
 from .core import SonirCore
 from .renderer import SonirRenderer
 from .video import VideoGenerator
@@ -10,7 +10,7 @@ from .video import VideoGenerator
 def main():
     parser = argparse.ArgumentParser(description="Sonir: Modular Audio Visualizer Engine")
     parser.add_argument("--audio", required=True, help="Path to the input audio file")
-    parser.add_argument("--mode", choices=["stem", "piano", "multiband", "twoband", "kickbass", "spectrum", "violin", "fiveband", "drums"], default="stem", help="Visualization mode")
+    parser.add_argument("--mode", choices=["stem", "piano", "multiband", "twoband", "kickbass", "spectrum", "violin", "fiveband", "drums", "dynamic"], default="stem", help="Visualization mode")
     parser.add_argument("--theme", choices=["neon", "cyberpunk", "noir", "sunset", "matrix"], default="neon", help="Color theme")
     parser.add_argument("--aspect", choices=["16:9", "9:16", "1:1", "4:3", "21:9"], default="16:9", help="Output aspect ratio (default: 16:9)")
     parser.add_argument("--export", action="store_true", help="Render to video file instead of realtime preview")
@@ -52,7 +52,8 @@ def main():
         "spectrum": SpectrumMode,
         "violin": ViolinMode,
         "fiveband": FiveBandMode,
-        "drums": DrumsMode
+        "drums": DrumsMode,
+        "dynamic": DynamicMode
     }
     
     analyzer_cls = analyzers[args.mode]
@@ -74,9 +75,17 @@ def main():
     # 2. Bake Physics
     print("Baking physics simulations...")
     processed_tracks = {}
+    
+    # Generate a seed based on audio filename to ensure determinism across runs
+    import hashlib
+    file_hash = int(hashlib.md5(os.path.basename(args.audio).encode()).hexdigest(), 16) % (2**32)
+    
     for name, data in raw_tracks.items():
         print(f"  Baking {name} ({len(data['onsets'])} onsets)...")
-        timeline, baked_onsets = SonirCore.bake(data['onsets'])
+        # Mix file hash with track name hash for unique seeds per track but deterministic overall
+        track_seed = (file_hash + int(hashlib.md5(name.encode()).hexdigest(), 16)) % (2**32)
+        
+        timeline, baked_onsets = SonirCore.bake(data['onsets'], seed=track_seed)
         
         processed_tracks[name] = {
             "timeline": timeline,

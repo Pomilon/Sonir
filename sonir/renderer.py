@@ -313,9 +313,10 @@ class SonirRenderer:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                     running = False
-            
-            # Update screen surface
+                elif event.type == pygame.VIDEORESIZE:
+                    self.width, self.height = event.w, event.h
                     screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
+                    self.rects = self._calculate_layout(len(self.tracks_data))
             
             dt = clock.get_time() / 1000.0
             self.render_frame(screen, audio_time, dt)

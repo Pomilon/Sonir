@@ -23,9 +23,10 @@ It has come to my attention that automated accounts (such as `yobo1889`) are scr
 
 ## Features
 
-- **Physics-Based Visualization**: A deterministic engine that maps musical timing (onsets) to a 2D flight path.
+- **Physics-Based Visualization**: A deterministic engine that maps musical timing (onsets) to a 2D flight path. Now includes file-hash based seeding for 100% reproducible layouts.
 - **Multiple Modes**:
   - **Stem Mode**: Automatic separation of Drums, Bass, Other, Vocals (using Demucs).
+  - **Dynamic Mode**: Hybrid analysis using Harmonic-Percussive Source Separation (HPSS) + Frequency Band Splitting.
   - **Piano Mode**: Optimized for sharp transient detection (400Hz-4500Hz).
   - **Multi-Band & Spectrum**: Frequency-based splitting (Bass, Mids, Highs).
   - **Genre Specific**: Dedicated modes for `Drums`, `Violin`, and `KickBass` (Electronic).
@@ -97,6 +98,9 @@ python main.py --audio "song.mp3" --mode stem
 
 **Genre-Specific**
 ```bash
+# For Dynamic Analysis (HPSS + Bands)
+python main.py --audio "song.mp3" --mode dynamic
+
 # For Electronic/Dance
 python main.py --audio "edm.mp3" --mode kickbass
 

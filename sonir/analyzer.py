@@ -426,3 +426,71 @@ class ViolinMode(AudioAnalyzer):
                 "path": self.audio_path
             }
         }
+
+class DynamicMode(AudioAnalyzer):
+    def analyze(self):
+        print("Analyzing Dynamic Mode (HPSS + Band Separation)...")
+        y, sr = librosa.load(self.audio_path)
+        
+        # 1. Harmonic-Percussive Source Separation
+        print("  Separating Harmonic and Percussive components...")
+        y_harm, y_perc = librosa.effects.hpss(y)
+        
+        results = {}
+        
+        # 2. Analyze Percussive Stream (Rhythm)
+        # Split into Low (Kick) and Mid/High (Snare/Hats)
+        # Using separate frequency bands on the percussive signal is very clean.
+        
+        # We need spectrogram for frequency masking
+        D_perc = np.abs(librosa.stft(y_perc))
+        freqs = librosa.fft_frequencies(sr=sr)
+        
+        # Percussive Bands
+        p_bands = [
+            ("kick", 20, 150, 2),       # Deep Hits
+            ("snare", 150, 2500, 1),    # Snare/Clap
+            ("hats", 2500, 10000, 1)    # Cymbals/Hats
+        ]
+        
+        for name, low, high, wait_val in p_bands:
+            mask = (freqs >= low) & (freqs <= high)
+            spec = D_perc[mask, :]
+            if spec.shape[0] == 0: continue
+            
+            S_db = librosa.amplitude_to_db(spec, ref=np.max)
+            # Use lower delta for percussive elements as they are distinct peaks
+            onsets = self._get_onsets(y=None, sr=sr, S=S_db, wait=wait_val, delta=0.06)
+            
+            results[name] = {
+                "onsets": onsets,
+                "color": Config.TRACK_COLORS.get(name, (255, 255, 255)),
+                "path": self.audio_path
+            }
+            
+        # 3. Analyze Harmonic Stream (Melody/Chords)
+        # We treat this as one or two bands.
+        
+        D_harm = np.abs(librosa.stft(y_harm))
+        
+        h_bands = [
+            ("bass", 20, 300, 4),        # Bassline (Sustained)
+            ("mel", 300, 5000, 4)        # Chords/Melody
+        ]
+        
+        for name, low, high, wait_val in h_bands:
+            mask = (freqs >= low) & (freqs <= high)
+            spec = D_harm[mask, :]
+            if spec.shape[0] == 0: continue
+            
+            S_db = librosa.amplitude_to_db(spec, ref=np.max)
+            # Use higher delta/wait for harmonic content to avoid noise
+            onsets = self._get_onsets(y=None, sr=sr, S=S_db, wait=wait_val, delta=0.1)
+            
+            results[name] = {
+                "onsets": onsets,
+                "color": Config.TRACK_COLORS.get(name, (200, 200, 200)),
+                "path": self.audio_path
+            }
+            
+        return results

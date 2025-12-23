@@ -9,13 +9,14 @@ class SonirCore:
     """
     
     @staticmethod
-    def bake(onsets, speed=Config.SQUARE_SPEED):
+    def bake(onsets, speed=Config.SQUARE_SPEED, seed=None):
         """
         Generates the wall geometry and flight path for a list of timestamps.
         
         Args:
             onsets (np.array): Sorted array of timestamps (seconds).
             speed (float): Speed of the square in units per second.
+            seed (int): Optional seed for random number generation to ensure determinism.
             
         Returns:
             tuple: (timeline, onsets)
@@ -24,6 +25,9 @@ class SonirCore:
         """
         if len(onsets) == 0:
             return [], onsets
+        
+        # Initialize Random State
+        rng = np.random.RandomState(seed)
             
         # Ensure we start at 0
         if onsets[0] > 0:
@@ -37,7 +41,7 @@ class SonirCore:
         curr_p = np.array([0.0, 0.0])
         
         # Initial direction (randomized or fixed, let's keep it semi-random but consistent)
-        curr_angle = np.random.uniform(0, 2 * math.pi)
+        curr_angle = rng.uniform(0, 2 * math.pi)
         curr_d = np.array([math.cos(curr_angle), math.sin(curr_angle)])
         
         for i in range(len(onsets) - 1):
@@ -50,8 +54,8 @@ class SonirCore:
             
             # Turn logic (Reflection)
             # Using logic from source: 75 to 135 degrees turn
-            turn = np.random.uniform(math.radians(75), math.radians(135))
-            if np.random.random() > 0.5: 
+            turn = rng.uniform(math.radians(75), math.radians(135))
+            if rng.random_sample() > 0.5: 
                 turn *= -1
                 
             new_angle = math.atan2(curr_d[1], curr_d[0]) + turn
