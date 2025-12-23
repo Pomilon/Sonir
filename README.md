@@ -158,6 +158,48 @@ Run with:
 python main.py --audio "song.mp3" --mode custom --config my_config.json
 ```
 
+## Gamification
+
+Turn any visualization into a playable game level with the `--gamify` flag.
+
+### 1. Rhythm Game
+An interactive version of the physics simulation. Press the key for a viewport exactly when the square hits a wall.
+*   **Controls**: Automatically mapped based on the number of viewports (e.g., `D` / `K`, `Left` / `Right`, or `Space` for single track).
+*   **Features**: Scoring, Combo system, Health bar (with passive drain), and precision hit windows.
+
+```bash
+python main.py --audio "song.mp3" --mode dual --gamify rhythm
+```
+
+**Modifiers (`--modifiers`):**
+*   `death`: Sudden Death. One miss or ghost tap ends the game.
+*   `chaos`: Viewports shuffle positions every 5-8 seconds. Keybindings follow the visual location!
+*   `focus`: Forces you to switch attention between tracks periodically.
+
+```bash
+# Ultimate Challenge
+python main.py --audio "song.mp3" --mode quad --gamify rhythm --modifiers death chaos
+```
+
+### 2. Geometry Dash Mode
+A side-scrolling physics platformer generated from the music's energy.
+*   **Mechanics**:
+    *   **Cube**: Jump (`Space` / `Up` / `Click`) to avoid spikes and blocks.
+    *   **Ship**: Hold `Space` to fly. Spawns in high-energy sections.
+    *   **Ball**: Click to flip gravity.
+    *   **Items**: Jump Orbs (Yellow) and Mode Portals.
+*   **Physics**: Tuned for a heavy, realistic feel similar to the original game.
+
+```bash
+python main.py --audio "song.mp3" --mode electronic --gamify gd
+```
+
+**Autoplay:**
+Want to watch the bot play perfectly? Add `--autoplay`.
+```bash
+python main.py --audio "song.mp3" --mode electronic --gamify gd --autoplay
+```
+
 ### 4. Export to Video
 
 Add `--export` to render a high-quality MP4. You can customize the encoder (`--encoder`) and quality (`--crf`).
