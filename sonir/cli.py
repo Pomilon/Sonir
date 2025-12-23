@@ -122,6 +122,22 @@ def main():
         renderer = SonirRenderer(processed_tracks, args.audio)
         
         if args.export:
+            # Check for FFmpeg
+            if not shutil.which("ffmpeg"):
+                print("Error: FFmpeg is required for video export but was not found in PATH.")
+                print("Please install FFmpeg: https://ffmpeg.org/download.html")
+                sys.exit(1)
+                
+            # Safe Output Filename
+            base, ext = os.path.splitext(args.output)
+            counter = 1
+            while os.path.exists(args.output):
+                args.output = f"{base}_{counter}{ext}"
+                counter += 1
+            
+            if counter > 1:
+                print(f"Output file exists. Auto-renaming to: '{args.output}'")
+            
             print("Starting headless render...")
             frames_dir = "sonir_frames_tmp"
             renderer.run_headless(output_dir=frames_dir)
