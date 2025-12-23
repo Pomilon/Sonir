@@ -37,7 +37,7 @@ class SonirRenderer:
             except Exception:
                 pass
                 
-try:
+        try:
             self.font = pygame.font.SysFont("arial", 14)
         except Exception:
             self.font = None
@@ -117,7 +117,7 @@ try:
             if safe_rect.width <= 0 or safe_rect.height <= 0:
                 continue
             
-try:
+            try:
                 sub = surface.subsurface(safe_rect)
             except ValueError:
                 continue
@@ -403,19 +403,19 @@ try:
             shutil.rmtree(output_dir)
         os.makedirs(output_dir)
         
-try:
+        try:
             pygame.init()
             screen = pygame.display.set_mode((self.width, self.height))
         except pygame.error as e:
             print(f"Error initializing headless display: {e}")
             return
         
-total_frames = int(self.duration * Config.HEADLESS_FPS)
-dt = 1.0 / Config.HEADLESS_FPS
+        total_frames = int(self.duration * Config.HEADLESS_FPS)
+        dt = 1.0 / Config.HEADLESS_FPS
         
         print(f"Rendering {total_frames} frames to '{output_dir}'...")
         
-try:
+        try:
             for i in range(total_frames):
                 audio_time = i * dt
                 self.render_frame(screen, audio_time, dt)
@@ -425,8 +425,8 @@ try:
                 
                 if i % 100 == 0:
                     print(f"Rendered {i}/{total_frames} frames ({i/total_frames*100:.1f}%)", end='\r')
-except KeyboardInterrupt:
+        except KeyboardInterrupt:
             print("\nRendering cancelled.")
-finally:
+        finally:
             print("\nRendering complete.")
             pygame.quit()

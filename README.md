@@ -37,7 +37,12 @@ It has come to my attention that automated accounts (such as `yobo1889`) are scr
   - **Cinema Camera**: Dynamic camera movement that leads the action.
   - **Theming**: 5 built-in color themes (`neon`, `cyberpunk`, `noir`, `sunset`, `matrix`).
 - **Flexible Output**:
-  - **Real-time Preview**: Resizeable window using Pygame.
+  - **Real-time Preview**: Resizeable window with interactive controls:
+    - `SPACE`: Pause/Resume
+    - `Arrows`: Seek -5s/+5s
+    - `F`: Toggle Fullscreen
+    - `H`: Toggle UI
+    - `R`: Reset Playback
   - **Video Export**: Drift-free 60FPS MP4 export (H.265/HEVC by default) with customizable Aspect Ratios (`16:9`, `9:16`, `1:1`, etc).
 
 ## Gallery
@@ -156,6 +161,7 @@ python main.py --audio "song.mp3" --mode custom --config my_config.json
 ### 4. Export to Video
 
 Add `--export` to render a high-quality MP4. You can customize the encoder (`--encoder`) and quality (`--crf`).
+*Note: If the output filename already exists, Sonir will automatically rename the new file (e.g., `visualizer_1.mp4`) to prevent overwriting.*
 
 ```bash
 # Default H.265 Export
@@ -165,7 +171,7 @@ python main.py --audio "song.mp3" --mode stem --export --output "visualizer.mp4"
 python main.py --audio "song.mp3" --mode stem --export --encoder libx264 --crf 18
 ```
 
-### 4. Advanced Flags
+### 5. Advanced Flags
 
 - `--no-shake`: Disable screen shake.
 - `--no-particles`: Disable impact particles.
