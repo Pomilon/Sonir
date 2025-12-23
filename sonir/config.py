@@ -32,6 +32,7 @@ class Config:
         "mid": (50, 200, 150),  # Teal
         "mel": (255, 200, 50),  # Gold
         "violin": (230, 140, 40), # Amber / Wood
+        "strings": (230, 140, 40), # Alias for violin
         "air": (200, 240, 255),   # Very Pale Blue
         "upper": (150, 100, 220), # Purple
         "snare": (50, 200, 100),  # Crisp Green

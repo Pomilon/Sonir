@@ -1,8 +1,14 @@
 import argparse
 import os
 import sys
+import hashlib
+import traceback
+import shutil
 from .config import Config
-from .analyzer import StemMode, PianoMode, MultiBandMode, TwoBandMode, KickBassMode, SpectrumMode, ViolinMode, FiveBandMode, DrumsMode, DynamicMode
+from .analyzer import (
+    StemMode, PianoMode, QuadBandMode, DualBandMode, ElectronicMode, 
+    TripleBandMode, StringMode, CinematicMode, PercussionMode, DynamicMode
+)
 from .core import SonirCore
 from .renderer import SonirRenderer
 from .video import VideoGenerator
@@ -10,7 +16,14 @@ from .video import VideoGenerator
 def main():
     parser = argparse.ArgumentParser(description="Sonir: Modular Audio Visualizer Engine")
     parser.add_argument("--audio", required=True, help="Path to the input audio file")
-    parser.add_argument("--mode", choices=["stem", "piano", "multiband", "twoband", "kickbass", "spectrum", "violin", "fiveband", "drums", "dynamic"], default="stem", help="Visualization mode")
+    
+    # Updated Mode Choices
+    mode_choices = [
+        "stem", "dynamic", "piano", "string", "percussion", 
+        "dual", "triple", "quad", "electronic", "cinematic"
+    ]
+    parser.add_argument("--mode", choices=mode_choices, default="stem", help="Visualization mode")
+    
     parser.add_argument("--theme", choices=["neon", "cyberpunk", "noir", "sunset", "matrix"], default="neon", help="Color theme")
     parser.add_argument("--aspect", choices=["16:9", "9:16", "1:1", "4:3", "21:9"], default="16:9", help="Output aspect ratio (default: 16:9)")
     parser.add_argument("--export", action="store_true", help="Render to video file instead of realtime preview")
@@ -46,13 +59,13 @@ def main():
     analyzers = {
         "stem": StemMode,
         "piano": PianoMode,
-        "multiband": MultiBandMode,
-        "twoband": TwoBandMode,
-        "kickbass": KickBassMode,
-        "spectrum": SpectrumMode,
-        "violin": ViolinMode,
-        "fiveband": FiveBandMode,
-        "drums": DrumsMode,
+        "quad": QuadBandMode,
+        "dual": DualBandMode,
+        "electronic": ElectronicMode,
+        "triple": TripleBandMode,
+        "string": StringMode,
+        "cinematic": CinematicMode,
+        "percussion": PercussionMode,
         "dynamic": DynamicMode
     }
     
@@ -63,8 +76,6 @@ def main():
         raw_tracks = analyzer.analyze()
     except Exception as e:
         print(f"Analysis failed: {e}")
-        # Print stack trace for debugging
-        import traceback
         traceback.print_exc()
         sys.exit(1)
         
@@ -77,8 +88,10 @@ def main():
     processed_tracks = {}
     
     # Generate a seed based on audio filename to ensure determinism across runs
-    import hashlib
-    file_hash = int(hashlib.md5(os.path.basename(args.audio).encode()).hexdigest(), 16) % (2**32)
+    try:
+        file_hash = int(hashlib.md5(os.path.basename(args.audio).encode()).hexdigest(), 16) % (2**32)
+    except Exception:
+        file_hash = 42 # Fallback
     
     for name, data in raw_tracks.items():
         print(f"  Baking {name} ({len(data['onsets'])} onsets)...")
@@ -95,23 +108,32 @@ def main():
         }
 
     # 3. Render
-    renderer = SonirRenderer(processed_tracks, args.audio)
-    
-    if args.export:
-        print("Starting headless render...")
-        frames_dir = "sonir_frames_tmp"
-        renderer.run_headless(output_dir=frames_dir)
+    try:
+        renderer = SonirRenderer(processed_tracks, args.audio)
         
-        # 4. Video Generation
-        VideoGenerator.generate(args.audio, frames_dir, args.output, Config.HEADLESS_FPS)
-        
-        # Cleanup
-        import shutil
-        shutil.rmtree(frames_dir)
-        print("Done.")
-    else:
-        print("Starting realtime preview...")
-        renderer.run_realtime()
+        if args.export:
+            print("Starting headless render...")
+            frames_dir = "sonir_frames_tmp"
+            renderer.run_headless(output_dir=frames_dir)
+            
+            # 4. Video Generation
+            VideoGenerator.generate(args.audio, frames_dir, args.output, Config.HEADLESS_FPS)
+            
+            # Cleanup
+            if os.path.exists(frames_dir):
+                shutil.rmtree(frames_dir)
+            print("Done.")
+        else:
+            print("Starting realtime preview...")
+            renderer.run_realtime()
+            
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"Rendering failed: {e}")
+        traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

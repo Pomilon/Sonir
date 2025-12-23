@@ -27,10 +27,9 @@ It has come to my attention that automated accounts (such as `yobo1889`) are scr
 - **Multiple Modes**:
   - **Stem Mode**: Automatic separation of Drums, Bass, Other, Vocals (using Demucs).
   - **Dynamic Mode**: Hybrid analysis using Harmonic-Percussive Source Separation (HPSS) + Frequency Band Splitting.
-  - **Piano Mode**: Optimized for sharp transient detection (400Hz-4500Hz).
-  - **Multi-Band & Spectrum**: Frequency-based splitting (Bass, Mids, Highs).
-  - **Genre Specific**: Dedicated modes for `Drums`, `Violin`, and `KickBass` (Electronic).
-  - **FiveBand**: A cinematic center-focus layout.
+  - **Frequency Modes**: `Dual` (2-band), `Triple` (3-band), and `Quad` (4-band) splitters.
+  - **Genre Specific**: Dedicated modes for `Electronic` (Kick/Top), `Percussion` (Kick/Snare/Hats), `String` (Violin focus), and `Piano`.
+  - **Cinematic**: A 5-viewport center-focus layout.
 - **High-Quality Visuals**:
   - **"Juice" Effects**: Screen Shake, Impact Particles, Motion Trails, and Neon Glow.
   - **Dynamic Backgrounds**: Pulsing starfields and reactive environments.
@@ -102,25 +101,25 @@ python main.py --audio "song.mp3" --mode stem
 python main.py --audio "song.mp3" --mode dynamic
 
 # For Electronic/Dance
-python main.py --audio "edm.mp3" --mode kickbass
+python main.py --audio "edm.mp3" --mode electronic
 
 # For Drum Covers
-python main.py --audio "drums.mp3" --mode drums
+python main.py --audio "drums.mp3" --mode percussion
 
 # For Classical/Solo
-python main.py --audio "concerto.mp3" --mode violin
+python main.py --audio "concerto.mp3" --mode string
 ```
 
-### 2. Customization (Themes & Layouts)
+**Customization (Themes & Layouts)**
 
 **Vertical Video (TikTok/Shorts) with Cyberpunk Theme**
 ```bash
-python main.py --audio "song.mp3" --mode fiveband --aspect 9:16 --theme cyberpunk
+python main.py --audio "song.mp3" --mode cinematic --aspect 9:16 --theme cyberpunk
 ```
 
 **Square Video (Instagram) with Noir Theme**
 ```bash
-python main.py --audio "jazz.mp3" --mode spectrum --aspect 1:1 --theme noir
+python main.py --audio "jazz.mp3" --mode triple --aspect 1:1 --theme noir
 ```
 
 ### 3. Export to Video

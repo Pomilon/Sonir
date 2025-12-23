@@ -18,11 +18,22 @@ class AudioAnalyzer:
             "track_name": {
                 "onsets": np.array([...]),
                 "color": (r, g, b),
-                "audio_path": "path/to/source.wav" (optional, for playback mixing if needed)
+                "audio_path": "path/to/source.wav" (optional)
             }
         }
         """
         raise NotImplementedError
+
+    def _load_audio(self, path=None, sr=None):
+        """Safely load audio file."""
+        target_path = path if path else self.audio_path
+        target_sr = sr if sr else self.sr
+        try:
+            y, sr_out = librosa.load(target_path, sr=target_sr)
+            return y, sr_out
+        except Exception as e:
+            print(f"Error loading audio file '{target_path}': {e}")
+            return None, None
 
     def _get_onsets(self, y, sr, offset=0.0, **kwargs):
         """Standardized onset detection with adaptive sensitivity."""
@@ -34,19 +45,23 @@ class AudioAnalyzer:
         
         # Calculate onset envelope
         # Only pass remaining kwargs (like fmin, fmax) to onset_strength
-        onset_env = librosa.onset.onset_strength(y=y, sr=sr, **kwargs)
-        
-        # Detect onsets
-        onsets = librosa.onset.onset_detect(
-            onset_envelope=onset_env, 
-            sr=sr, 
-            units='time', 
-            backtrack=True, 
-            wait=wait,
-            pre_max=pre_max,
-            post_max=post_max,
-            delta=delta
-        )
+        try:
+            onset_env = librosa.onset.onset_strength(y=y, sr=sr, **kwargs)
+            
+            # Detect onsets
+            onsets = librosa.onset.onset_detect(
+                onset_envelope=onset_env, 
+                sr=sr, 
+                units='time', 
+                backtrack=True, 
+                wait=wait,
+                pre_max=pre_max,
+                post_max=post_max,
+                delta=delta
+            )
+        except Exception as e:
+            print(f"Error during onset detection: {e}")
+            return np.array([])
         
         # Adaptive Sensitivity Check
         # Calculate density (onsets per second)
@@ -68,95 +83,163 @@ class AudioAnalyzer:
             delta_sensitive = delta * 0.4 
             wait_sensitive = max(1, wait // 2)
             
-            onsets = librosa.onset.onset_detect(
-                onset_envelope=onset_env, 
-                sr=sr, 
-                units='time', 
-                backtrack=True, 
-                wait=wait_sensitive,
-                pre_max=pre_max,
-                post_max=post_max,
-                delta=delta_sensitive
-            )
-            print(f"  -> Found {len(onsets)} onsets (Density: {len(onsets)/duration:.2f}/s)")
+            try:
+                onsets = librosa.onset.onset_detect(
+                    onset_envelope=onset_env, 
+                    sr=sr, 
+                    units='time', 
+                    backtrack=True, 
+                    wait=wait_sensitive,
+                    pre_max=pre_max,
+                    post_max=post_max,
+                    delta=delta_sensitive
+                )
+                print(f"  -> Found {len(onsets)} onsets (Density: {len(onsets)/duration:.2f}/s)")
+            except Exception:
+                pass # Fallback to original onsets
 
         # Apply offset
         return onsets + offset
 
-class StemMode(AudioAnalyzer):
+class FrequencyBandMode(AudioAnalyzer):
+    """
+    Base class for modes that split audio into frequency bands using STFT.
+    """
+    def __init__(self, audio_path, bands):
+        """
+        bands: List of tuples (name, low_freq, high_freq, wait_val)
+        """
+        super().__init__(audio_path)
+        self.bands = bands
+
     def analyze(self):
-        song_name = os.path.splitext(os.path.basename(self.audio_path))[0]
-        # Assuming standard Demucs output structure
-        base_path = os.path.join("separated", "htdemucs", song_name)
-        
-        # Check if separation is needed
-        needs_separation = False
-        if not os.path.exists(base_path):
-            needs_separation = True
-        else:
-            # Check for individual files
-            for stem in ["drums.wav", "bass.wav", "other.wav", "vocals.wav"]:
-                if not os.path.exists(os.path.join(base_path, stem)):
-                    needs_separation = True
-                    break
-                    
-        if needs_separation:
-            print(f"Separated tracks not found for '{song_name}'. Running Demucs...")
-            try:
-                # Run demucs command
-                # -n htdemucs: Use the standard high-quality model
-                cmd = ["demucs", "-n", "htdemucs", self.audio_path]
-                subprocess.run(cmd, check=True)
-                print("Demucs separation complete.")
-            except subprocess.CalledProcessError as e:
-                print(f"Error running Demucs: {e}")
-                print("Make sure 'demucs' is installed via 'pip install demucs'.")
-                return {}
-            except FileNotFoundError:
-                print("Demucs executable not found. Please install it with 'pip install demucs'.")
-                return {}
-        
-        tracks_info = {
-            "drums": {"offset": Config.OFFSETS["drums"], "color": Config.TRACK_COLORS["drums"]},
-            "bass": {"offset": Config.OFFSETS["bass"], "color": Config.TRACK_COLORS["bass"]},
-            "other": {"offset": Config.OFFSETS["other"], "color": Config.TRACK_COLORS["other"]},
-            "vocals": {"offset": Config.OFFSETS["vocals"], "color": Config.TRACK_COLORS["vocals"]}
-        }
+        print(f"Analyzing {self.__class__.__name__}...")
+        y, sr = self._load_audio()
+        if y is None: return {}
+
+        D = np.abs(librosa.stft(y))
+        freqs = librosa.fft_frequencies(sr=sr)
         
         results = {}
         
-        for name, info in tracks_info.items():
-            path = os.path.join(base_path, f"{name}.wav")
-            if not os.path.exists(path):
-                print(f"Warning: Stem {name} not found at {path}. Skipping.")
+        for name, low, high, wait_val in self.bands:
+            mask = (freqs >= low) & (freqs <= high)
+            spec = D[mask, :]
+            
+            if spec.shape[0] == 0:
                 continue
-                
-            print(f"Analyzing stem: {name}...")
-            y, sr = librosa.load(path, sr=None) # Load at native SR
             
-            kwargs = {}
-            if name == "drums":
-                kwargs['fmin'] = 500 # Focus on high freq transients
-                kwargs['wait'] = 1   # Catch fast rolls/drills
-            elif name == "bass":
-                kwargs['fmax'] = 150 # Focus on low freq
-                
-            onsets = self._get_onsets(y, sr, offset=info['offset'], **kwargs)
+            # Calculate dB spec
+            S_db = librosa.amplitude_to_db(spec, ref=np.max)
             
+            onsets = self._get_onsets(
+                y=y, 
+                sr=sr, 
+                S=S_db, 
+                wait=wait_val
+            )
+            
+            # Handle alias color keys (e.g., 'top' -> 'high')
+            col = Config.TRACK_COLORS.get(name, (255, 255, 255))
+            if name == "top" and "top" not in Config.TRACK_COLORS:
+                col = Config.TRACK_COLORS.get("high", (255, 255, 255))
+
             results[name] = {
                 "onsets": onsets,
-                "color": info['color'],
-                "path": path
+                "color": col,
+                "path": self.audio_path
             }
             
         return results
 
+# --- Concrete Implementations ---
+
+class QuadBandMode(FrequencyBandMode):
+    def __init__(self, audio_path):
+        super().__init__(audio_path, [
+            ("bass", 20, 250, 4),
+            ("low_mid", 250, 1000, 4),
+            ("high_mid", 1000, 3000, 2), 
+            ("treble", 3000, 8000, 1)
+        ])
+
+class TripleBandMode(FrequencyBandMode):
+    def __init__(self, audio_path):
+        super().__init__(audio_path, [
+            ("sub", 20, 250, 2),
+            ("mid", 250, 2000, 2),
+            ("mel", 2000, 8000, 2)
+        ])
+
+class DualBandMode(FrequencyBandMode):
+    def __init__(self, audio_path):
+        super().__init__(audio_path, [
+            ("low", 20, 800, 2),
+            ("high", 800, 8000, 2)
+        ])
+
+class ElectronicMode(FrequencyBandMode):
+    def __init__(self, audio_path):
+        super().__init__(audio_path, [
+            ("kick", 20, 150, 2),
+            ("top", 150, 8000, 1)
+        ])
+
+class CinematicMode(FrequencyBandMode):
+    def __init__(self, audio_path):
+        # Order implies layout in renderer (TL, TR, BL, BR, Center)
+        super().__init__(audio_path, [
+            ("air", 5000, 10000, 1),
+            ("upper", 2000, 5000, 2),
+            ("sub", 20, 100, 4),
+            ("bass", 100, 300, 3),
+            ("mid", 300, 2000, 2)
+        ])
+
+class PercussionMode(FrequencyBandMode):
+    def __init__(self, audio_path):
+        super().__init__(audio_path, [
+            ("kick", 20, 150, 1),
+            ("snare", 150, 2000, 1),
+            ("hats", 2000, 10000, 1)
+        ])
+
+class StringMode(AudioAnalyzer):
+    def analyze(self):
+        print("Analyzing String Mode (Solo Focus)...")
+        y, sr = self._load_audio()
+        if y is None: return {}
+        
+        D = np.abs(librosa.stft(y))
+        freqs = librosa.fft_frequencies(sr=sr)
+        
+        # Mask: 190Hz (G3) to 10kHz (Harmonics/Bow noise)
+        mask = (freqs > 190) & (freqs < 10000)
+        S_filtered = D[mask, :]
+        
+        if S_filtered.shape[0] == 0:
+            print("Warning: No string frequencies detected.")
+            S_db = librosa.amplitude_to_db(D, ref=np.max)
+        else:
+            S_db = librosa.amplitude_to_db(S_filtered, ref=np.max)
+            
+        onsets = self._get_onsets(y=y, sr=sr, S=S_db, wait=2)
+        
+        return {
+            "strings": {
+                "onsets": onsets,
+                "color": Config.TRACK_COLORS.get("strings", (230, 140, 40)),
+                "path": self.audio_path
+            }
+        }
+
 class PianoMode(AudioAnalyzer):
     def analyze(self):
         print("Analyzing Piano Mode (Transient Focus)...")
-        y, sr = librosa.load(self.audio_path)
+        y, sr = self._load_audio()
+        if y is None: return {}
         
-        # STFT and Frequency Masking (from main.py)
+        # STFT and Frequency Masking
         S = np.abs(librosa.stft(y))
         freqs = librosa.fft_frequencies(sr=sr)
         
@@ -184,253 +267,11 @@ class PianoMode(AudioAnalyzer):
             }
         }
 
-class MultiBandMode(AudioAnalyzer):
-    def analyze(self):
-        print("Analyzing Multi-Band Mode...")
-        y, sr = librosa.load(self.audio_path)
-        D = np.abs(librosa.stft(y))
-        freqs = librosa.fft_frequencies(sr=sr)
-        
-        # (name, low, high, wait_param)
-        # Use lower wait for high frequencies to catch fast arpeggios
-        bands = [
-            ("bass", 20, 250, 4),
-            ("low_mid", 250, 1000, 4),
-            ("high_mid", 1000, 3000, 2), # Faster response for melody
-            ("treble", 3000, 8000, 1)    # Fastest response for hihats/glitter
-        ]
-        
-        results = {}
-        
-        for name, low, high, wait_val in bands:
-            mask = (freqs >= low) & (freqs <= high)
-            spec = D[mask, :]
-            
-            if spec.shape[0] == 0:
-                continue
-            
-            # Calculate dB spec
-            S_db = librosa.amplitude_to_db(spec, ref=np.max)
-            
-            onsets = self._get_onsets(
-                y=y, 
-                sr=sr, 
-                S=S_db, 
-                wait=wait_val
-            )
-            
-            results[name] = {
-                "onsets": onsets,
-                "color": Config.TRACK_COLORS.get(name, (255, 255, 255)),
-                "path": self.audio_path
-            }
-            
-        return results
-
-class TwoBandMode(AudioAnalyzer):
-    def analyze(self):
-        print("Analyzing Two-Band Mode (Low/High)...")
-        y, sr = librosa.load(self.audio_path)
-        D = np.abs(librosa.stft(y))
-        freqs = librosa.fft_frequencies(sr=sr)
-        
-        # Split roughly at 800Hz
-        bands = [
-            ("low", 20, 800),
-            ("high", 800, 8000)
-        ]
-        
-        results = {}
-        
-        for name, low, high in bands:
-            mask = (freqs >= low) & (freqs <= high)
-            spec = D[mask, :]
-            
-            if spec.shape[0] == 0:
-                continue
-                
-            S_db = librosa.amplitude_to_db(spec, ref=np.max)
-            onsets = self._get_onsets(y=y, sr=sr, S=S_db, wait=2)
-            
-            results[name] = {
-                "onsets": onsets,
-                "color": Config.TRACK_COLORS.get(name, (255, 255, 255)),
-                "path": self.audio_path
-            }
-            
-        return results
-
-class KickBassMode(AudioAnalyzer):
-    def analyze(self):
-        print("Analyzing KickBass Mode (Electronic Focus)...")
-        y, sr = librosa.load(self.audio_path)
-        D = np.abs(librosa.stft(y))
-        freqs = librosa.fft_frequencies(sr=sr)
-        
-        # 1. Kick/Sub (Very Low) - Focus on the 'thump'
-        # 2. Top (Everything else) - Snare, Hats, Melody
-        bands = [
-            ("kick", 20, 150, 2),      # Deep lows, faster response
-            ("top", 150, 8000, 1)     # The rest, rapid response
-        ]
-        
-        results = {}
-        
-        for name, low, high, wait_val in bands:
-            mask = (freqs >= low) & (freqs <= high)
-            spec = D[mask, :]
-            if spec.shape[0] == 0: continue
-
-            S_db = librosa.amplitude_to_db(spec, ref=np.max)
-            onsets = self._get_onsets(y=y, sr=sr, S=S_db, wait=wait_val)
-            
-            # Map 'top' to a color if not defined, or reuse 'high'
-            col = Config.TRACK_COLORS.get(name, Config.TRACK_COLORS["high"] if name == "top" else (255,255,255))
-            
-            results[name] = {
-                "onsets": onsets,
-                "color": col,
-                "path": self.audio_path
-            }
-        return results
-
-class SpectrumMode(AudioAnalyzer):
-    def analyze(self):
-        print("Analyzing Spectrum Mode (3-Band Split)...")
-        y, sr = librosa.load(self.audio_path)
-        D = np.abs(librosa.stft(y))
-        freqs = librosa.fft_frequencies(sr=sr)
-        
-        # Classic 3-band split
-        bands = [
-            ("sub", 20, 250, 2),
-            ("mid", 250, 2000, 2),
-            ("mel", 2000, 8000, 2) # High/Melody
-        ]
-        
-        results = {}
-        for name, low, high, wait_val in bands:
-            mask = (freqs >= low) & (freqs <= high)
-            spec = D[mask, :]
-            if spec.shape[0] == 0: continue
-
-            S_db = librosa.amplitude_to_db(spec, ref=np.max)
-            onsets = self._get_onsets(y=y, sr=sr, S=S_db, wait=wait_val)
-            
-            results[name] = {
-                "onsets": onsets,
-                "color": Config.TRACK_COLORS.get(name, (255, 255, 255)),
-                "path": self.audio_path
-            }
-        return results
-
-class FiveBandMode(AudioAnalyzer):
-    def analyze(self):
-        print("Analyzing Five-Band Mode (Center Focus)...")
-        y, sr = librosa.load(self.audio_path)
-        D = np.abs(librosa.stft(y))
-        freqs = librosa.fft_frequencies(sr=sr)
-        
-        # Order determines position in the 5-viewport layout:
-        # 1. TL (Air), 2. TR (Upper), 3. BL (Sub), 4. BR (Bass), 5. Center (Mid)
-        bands = [
-            ("air", 5000, 10000, 1),    # Top Left
-            ("upper", 2000, 5000, 2),   # Top Right
-            ("sub", 20, 100, 4),        # Bottom Left
-            ("bass", 100, 300, 3),      # Bottom Right
-            ("mid", 300, 2000, 2)       # Center (Focus)
-        ]
-        
-        results = {}
-        for name, low, high, wait_val in bands:
-            mask = (freqs >= low) & (freqs <= high)
-            spec = D[mask, :]
-            if spec.shape[0] == 0: continue
-
-            S_db = librosa.amplitude_to_db(spec, ref=np.max)
-            onsets = self._get_onsets(y=y, sr=sr, S=S_db, wait=wait_val)
-            
-            # Colors
-            if name == "air": col = Config.TRACK_COLORS["air"]
-            elif name == "upper": col = Config.TRACK_COLORS["upper"]
-            elif name == "sub": col = Config.TRACK_COLORS["kick"] # Reuse kick color
-            elif name == "bass": col = Config.TRACK_COLORS["bass"]
-            else: col = Config.TRACK_COLORS["mel"] # Mid/Lead gets gold
-            
-            results[name] = {
-                "onsets": onsets,
-                "color": col,
-                "path": self.audio_path
-            }
-        return results
-
-class DrumsMode(AudioAnalyzer):
-    def analyze(self):
-        print("Analyzing Drums Mode (Percussion Focus)...")
-        y, sr = librosa.load(self.audio_path)
-        D = np.abs(librosa.stft(y))
-        freqs = librosa.fft_frequencies(sr=sr)
-        
-        # 3-Band Percussion Split
-        # Kick: Deep lows
-        # Snare: Mid-range body
-        # Hats: High transients
-        bands = [
-            ("kick", 20, 150, 1),
-            ("snare", 150, 2000, 1),
-            ("hats", 2000, 10000, 1)
-        ]
-        
-        results = {}
-        for name, low, high, wait_val in bands:
-            mask = (freqs >= low) & (freqs <= high)
-            spec = D[mask, :]
-            if spec.shape[0] == 0: continue
-
-            S_db = librosa.amplitude_to_db(spec, ref=np.max)
-            onsets = self._get_onsets(y=y, sr=sr, S=S_db, wait=wait_val)
-            
-            results[name] = {
-                "onsets": onsets,
-                "color": Config.TRACK_COLORS.get(name, (255, 255, 255)),
-                "path": self.audio_path
-            }
-        return results
-
-class ViolinMode(AudioAnalyzer):
-    def analyze(self):
-        print("Analyzing Violin Mode (Solo Focus)...")
-        y, sr = librosa.load(self.audio_path)
-        
-        # STFT
-        D = np.abs(librosa.stft(y))
-        freqs = librosa.fft_frequencies(sr=sr)
-        
-        # Mask: 190Hz (G3) to 10kHz (Harmonics/Bow noise)
-        mask = (freqs > 190) & (freqs < 10000)
-        S_filtered = D[mask, :]
-        
-        if S_filtered.shape[0] == 0:
-            print("Warning: No violin frequencies detected.")
-            S_db = librosa.amplitude_to_db(D, ref=np.max)
-        else:
-            S_db = librosa.amplitude_to_db(S_filtered, ref=np.max)
-            
-        # Detect onsets with moderate wait to handle bowing
-        onsets = self._get_onsets(y=y, sr=sr, S=S_db, wait=2)
-        
-        return {
-            "violin": {
-                "onsets": onsets,
-                "color": Config.TRACK_COLORS["violin"],
-                "path": self.audio_path
-            }
-        }
-
 class DynamicMode(AudioAnalyzer):
     def analyze(self):
         print("Analyzing Dynamic Mode (HPSS + Band Separation)...")
-        y, sr = librosa.load(self.audio_path)
+        y, sr = self._load_audio()
+        if y is None: return {}
         
         # 1. Harmonic-Percussive Source Separation
         print("  Separating Harmonic and Percussive components...")
@@ -440,13 +281,9 @@ class DynamicMode(AudioAnalyzer):
         
         # 2. Analyze Percussive Stream (Rhythm)
         # Split into Low (Kick) and Mid/High (Snare/Hats)
-        # Using separate frequency bands on the percussive signal is very clean.
-        
-        # We need spectrogram for frequency masking
         D_perc = np.abs(librosa.stft(y_perc))
         freqs = librosa.fft_frequencies(sr=sr)
         
-        # Percussive Bands
         p_bands = [
             ("kick", 20, 150, 2),       # Deep Hits
             ("snare", 150, 2500, 1),    # Snare/Clap
@@ -459,7 +296,6 @@ class DynamicMode(AudioAnalyzer):
             if spec.shape[0] == 0: continue
             
             S_db = librosa.amplitude_to_db(spec, ref=np.max)
-            # Use lower delta for percussive elements as they are distinct peaks
             onsets = self._get_onsets(y=None, sr=sr, S=S_db, wait=wait_val, delta=0.06)
             
             results[name] = {
@@ -469,8 +305,6 @@ class DynamicMode(AudioAnalyzer):
             }
             
         # 3. Analyze Harmonic Stream (Melody/Chords)
-        # We treat this as one or two bands.
-        
         D_harm = np.abs(librosa.stft(y_harm))
         
         h_bands = [
@@ -484,13 +318,78 @@ class DynamicMode(AudioAnalyzer):
             if spec.shape[0] == 0: continue
             
             S_db = librosa.amplitude_to_db(spec, ref=np.max)
-            # Use higher delta/wait for harmonic content to avoid noise
             onsets = self._get_onsets(y=None, sr=sr, S=S_db, wait=wait_val, delta=0.1)
             
             results[name] = {
                 "onsets": onsets,
                 "color": Config.TRACK_COLORS.get(name, (200, 200, 200)),
                 "path": self.audio_path
+            }
+            
+        return results
+
+class StemMode(AudioAnalyzer):
+    def analyze(self):
+        song_name = os.path.splitext(os.path.basename(self.audio_path))[0]
+        base_path = os.path.join("separated", "htdemucs", song_name)
+        
+        # Check if separation is needed
+        needs_separation = False
+        if not os.path.exists(base_path):
+            needs_separation = True
+        else:
+            for stem in ["drums.wav", "bass.wav", "other.wav", "vocals.wav"]:
+                if not os.path.exists(os.path.join(base_path, stem)):
+                    needs_separation = True
+                    break
+                    
+        if needs_separation:
+            print(f"Separated tracks not found for '{song_name}'. Running Demucs...")
+            try:
+                # Run demucs command
+                cmd = ["demucs", "-n", "htdemucs", self.audio_path]
+                subprocess.run(cmd, check=True)
+                print("Demucs separation complete.")
+            except subprocess.CalledProcessError as e:
+                print(f"Error running Demucs: {e}")
+                print("Make sure 'demucs' is installed via 'pip install demucs'.")
+                return {}
+            except FileNotFoundError:
+                print("Demucs executable not found. Please install it with 'pip install demucs'.")
+                return {}
+        
+        tracks_info = {
+            "drums": {"offset": Config.OFFSETS["drums"], "color": Config.TRACK_COLORS["drums"]},
+            "bass": {"offset": Config.OFFSETS["bass"], "color": Config.TRACK_COLORS["bass"]},
+            "other": {"offset": Config.OFFSETS["other"], "color": Config.TRACK_COLORS["other"]},
+            "vocals": {"offset": Config.OFFSETS["vocals"], "color": Config.TRACK_COLORS["vocals"]}
+        }
+        
+        results = {}
+        
+        for name, info in tracks_info.items():
+            path = os.path.join(base_path, f"{name}.wav")
+            if not os.path.exists(path):
+                print(f"Warning: Stem {name} not found at {path}. Skipping.")
+                continue
+                
+            print(f"Analyzing stem: {name}...")
+            y, sr = self._load_audio(path=path)
+            if y is None: continue
+            
+            kwargs = {}
+            if name == "drums":
+                kwargs['fmin'] = 500 
+                kwargs['wait'] = 1   
+            elif name == "bass":
+                kwargs['fmax'] = 150 
+                
+            onsets = self._get_onsets(y, sr, offset=info['offset'], **kwargs)
+            
+            results[name] = {
+                "onsets": onsets,
+                "color": info['color'],
+                "path": path
             }
             
         return results
