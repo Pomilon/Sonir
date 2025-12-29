@@ -17,12 +17,16 @@ class SonirRenderer:
         
         # Audio Duration (for UI)
         try:
-            # Only load duration, don't decode full audio if possible
-            y_tmp, sr_tmp = librosa.load(audio_path, sr=None)
-            self.duration = librosa.get_duration(y=y_tmp, sr=sr_tmp)
-        except Exception as e:
-            print(f"Warning: Could not determine audio duration: {e}")
-            self.duration = 0
+            # Try efficient duration check first (without decoding full audio)
+            self.duration = librosa.get_duration(path=audio_path)
+        except Exception:
+            try:
+                # Fallback to loading if path argument fails (older librosa versions)
+                y_tmp, sr_tmp = librosa.load(audio_path, sr=None)
+                self.duration = librosa.get_duration(y=y_tmp, sr=sr_tmp)
+            except Exception as e:
+                print(f"Warning: Could not determine audio duration: {e}")
+                self.duration = 0
         
         # Initialize Pygame and Fonts
         if not pygame.get_init():
@@ -62,6 +66,45 @@ class SonirRenderer:
             
         # Determine layout
         self.rects = self._calculate_layout(len(tracks_data))
+
+        # --- Post-Processing Assets ---
+        self.canvas = pygame.Surface((self.width, self.height)) # Main drawing buffer
+        
+        # 1. CRT Scanlines
+        self.crt_surface = None
+        if Config.ENABLE_CRT:
+            self.crt_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            for y in range(0, self.height, 4):
+                pygame.draw.line(self.crt_surface, (0, 0, 0, 50), (0, y), (self.width, y), 2)
+        
+        # 2. Vignette
+        self.vignette_surface = None
+        if Config.ENABLE_VIGNETTE:
+            self.vignette_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            center = (self.width // 2, self.height // 2)
+            max_radius = int(math.hypot(center[0], center[1]))
+            for r in range(max_radius, 0, -5):
+                alpha = int(255 * (r / max_radius)**3) # Cube for sharper falloff
+                if alpha > 0:
+                    pygame.draw.circle(self.vignette_surface, (0, 0, 0, 2), center, r) # Very subtle accumulation
+            
+            # Hard corners
+            pygame.draw.rect(self.vignette_surface, (0,0,0,100), (0, 0, self.width, self.height), 20)
+
+        # 3. Noise
+        self.noise_frames = []
+        if Config.ENABLE_NOISE:
+            # Generate multiple frames of noise for animation
+            # Use low intensity (0-40) so BLEND_ADD is subtle
+            nw, nh = self.width // 2, self.height // 2 # Half res for performance
+            for _ in range(3):
+                # Grayscale noise (R=G=B) looks better for film grain
+                noise_vals = np.random.randint(0, 50, (nw, nh), dtype=np.uint8)
+                noise_rgb = np.dstack((noise_vals, noise_vals, noise_vals))
+                
+                temp_surf = pygame.surfarray.make_surface(noise_rgb)
+                scaled = pygame.transform.scale(temp_surf, (self.width, self.height))
+                self.noise_frames.append(scaled)
         
     def _calculate_layout(self, num_tracks):
         rects = {}
@@ -159,22 +202,17 @@ class SonirRenderer:
             if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 running = False
             
-            elif event.type == pygame.VIDEORESIZE:
-                # Check if size actually changed to avoid spamming set_mode (Linux/Window focus fix)
-                if (event.w != self.width or event.h != self.height) and not pygame.display.get_surface().get_flags() & pygame.FULLSCREEN:
-                    self.width, self.height = event.w, event.h
-                    pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
-                    self.rects = self._calculate_layout(len(self.tracks_data))
-            
             elif event.type == pygame.KEYDOWN:
                 # Toggle Fullscreen
                 if event.key == pygame.K_f:
                     screen = pygame.display.get_surface()
                     is_fs = screen.get_flags() & pygame.FULLSCREEN
                     if is_fs:
-                        pygame.display.set_mode((Config.WIDTH, Config.HEIGHT), pygame.RESIZABLE)
+                        # Return to windowed mode (fixed size)
+                        pygame.display.set_mode((Config.WIDTH, Config.HEIGHT))
                         self.width, self.height = Config.WIDTH, Config.HEIGHT
                     else:
+                        # Go fullscreen
                         Config.WIDTH, Config.HEIGHT = self.width, self.height
                         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
                         self.width, self.height = screen.get_size()
@@ -203,25 +241,132 @@ class SonirRenderer:
 
         return running, new_paused, offset_change
 
-    def _draw_viewport(self, surface, rect, track, state, audio_time, dt=0.016):
-        # --- 1. DRAW BACKGROUND ---
-        bg_color = list(Config.COLOR_BG)
+    def _draw_background(self, surface, rect, state, pulse, audio_time):
+        mode = Config.BG_MODE
+        w, h = rect.width, rect.height
         
-        # Dynamic Pulse
-        if Config.ENABLE_DYNAMIC_BG and Config.ENABLE_SHAKE:
-            pulse = min(Config.BG_PULSE_AMT, state["shake"] * Config.BG_PULSE_AMT)
-            bg_color = (min(255, int(bg_color[0]+pulse)), min(255, int(bg_color[1]+pulse)), min(255, int(bg_color[2]+pulse)))
-            
+        # Base Fill
+        bg_color = list(Config.COLOR_BG)
+        if Config.ENABLE_SHAKE:
+             # Pulse Background brightness
+             p = min(Config.BG_PULSE_AMT, state["shake"] * Config.BG_PULSE_AMT)
+             bg_color = (min(255, int(bg_color[0]+p)), min(255, int(bg_color[1]+p)), min(255, int(bg_color[2]+p)))
+        
         surface.fill(bg_color)
         
-        # Draw Stars
-        if Config.ENABLE_DYNAMIC_BG:
-            w, h = rect.width, rect.height
+        if not Config.ENABLE_DYNAMIC_BG:
+            return
+
+        if mode == "stars":
             for star in state["stars"]:
                 sx = int(star[0] * w)
                 sy = int(star[1] * h)
                 c = int(100 + pulse * 10) if Config.ENABLE_SHAKE else 100
                 pygame.draw.circle(surface, (c, c, c), (sx, sy), star[2])
+                
+        elif mode == "grid":
+            # Synthwave Grid
+            # Horizontal lines moving down
+            # Vertical lines fanning out
+            
+            grid_speed = 0.4
+            offset = (audio_time * grid_speed) % 1.0
+            
+            col = (40, 0, 60) # Deep Purple Grid default
+            if Config.ENABLE_SHAKE and state["shake"] > 0.5:
+                 col = (80, 20, 100) # Brighten on hit
+            
+            # Horizon line at 1/3 height?
+            horizon_y = h * 0.3
+            
+            # Draw Horizontal Lines (Perspective)
+            # y mapped exponentially
+            for i in range(10):
+                z = (i + offset) / 10.0 # 0 to 1
+                # y = horizon + (height - horizon) * z^2
+                y = horizon_y + (h - horizon_y) * (z * z)
+                pygame.draw.line(surface, col, (0, y), (w, y), 1)
+                
+            # Draw Vertical Lines
+            center_x = w / 2
+            for i in range(-5, 6):
+                # x fan out
+                # at bottom (z=1): x = center + i * spacing
+                # at horizon (z=0): x = center
+                spacing = w / 4
+                bottom_x = center_x + i * spacing
+                pygame.draw.line(surface, col, (center_x, horizon_y), (bottom_x, h), 1)
+
+        elif mode == "gradient":
+             b_col = (40, 20, 60)
+             if Config.ENABLE_SHAKE:
+                s = state["shake"]
+                b_col = (int(40+s*50), int(20+s*20), int(60+s*80))
+             step = h // 20
+             for y in range(0, h, step):
+                 # Interp
+                 factor = y / h
+                 c = [
+                     int(bg_color[0] * (1-factor) + b_col[0] * factor),
+                     int(bg_color[1] * (1-factor) + b_col[1] * factor),
+                     int(bg_color[2] * (1-factor) + b_col[2] * factor)
+                 ]
+                 pygame.draw.rect(surface, c, (0, y, w, step))
+
+        elif mode == "tunnel":
+            # Concentric squares moving towards camera
+            cx, cy = w/2, h/2
+            speed = 0.5
+            
+            num_rings = 6
+            max_size = max(w, h)
+            
+            col = (60, 60, 80)
+            
+            for i in range(num_rings):
+                # Phase shift each ring
+                phase = (audio_time * speed + i / num_rings) % 1.0
+                # Scale from 0 to 1 exponentially
+                scale = phase * phase * phase
+                
+                size = scale * max_size
+                if size < 1: continue
+                
+                rect_t = pygame.Rect(0, 0, size, size)
+                rect_t.center = (cx, cy)
+                
+                # Dynamic Color based on phase
+                val = int(50 * scale)
+                c_ring = (val, val, int(val * 1.5))
+                
+                pygame.draw.rect(surface, c_ring, rect_t, 2)
+                
+        elif mode == "flow":
+            # Horizontal Sine waves
+            cy = h / 2
+            points = []
+            freq = 0.05
+            amp = h * 0.2
+            speed = 100
+            
+            for x in range(0, w, 10):
+                y = cy + math.sin((x + audio_time * speed) * freq) * amp
+                # Add a second wave
+                y += math.sin((x - audio_time * speed * 0.5) * 0.02) * (amp * 0.5)
+                points.append((x, y))
+                
+            if len(points) > 1:
+                c_wave = (0, 100, 200)
+                pygame.draw.lines(surface, c_wave, False, points, 2)
+
+
+    def _draw_viewport(self, surface, rect, track, state, audio_time, dt=0.016):
+        # --- 1. DRAW BACKGROUND ---
+        pulse = 0
+        if Config.ENABLE_DYNAMIC_BG and Config.ENABLE_SHAKE:
+             pulse = min(Config.BG_PULSE_AMT, state["shake"] * Config.BG_PULSE_AMT)
+             
+        self._draw_background(surface, rect, state, pulse, audio_time)
 
         timeline = track["timeline"]
         if not timeline: return
@@ -352,11 +497,53 @@ class SonirRenderer:
                 pygame.draw.rect(surface, col, (pos[0], pos[1], sz, sz))
 
 
+    def _apply_post_processing(self, source, dest):
+        """Applies enabled effects from source surface to dest surface."""
+        
+        # 1. Chromatic Aberration (RGB Shift)
+        if Config.ENABLE_ABERRATION:
+            
+            dest.blit(source, (0, 0)) # Base image
+            
+            offset = Config.ABERRATION_OFFSET
+            
+            r_channel = source.copy()
+            r_channel.fill((0, 255, 255), special_flags=pygame.BLEND_RGB_SUB) # Keep Red
+            dest.blit(r_channel, (-offset, 0), special_flags=pygame.BLEND_RGB_ADD)
+            
+            b_channel = source.copy()
+            b_channel.fill((255, 255, 0), special_flags=pygame.BLEND_RGB_SUB) # Keep Blue
+            dest.blit(b_channel, (offset, 0), special_flags=pygame.BLEND_RGB_ADD)
+            
+        else:
+            dest.blit(source, (0, 0))
+            
+        # 2. Noise
+        if Config.ENABLE_NOISE and self.noise_frames:
+             # Pick a random frame for animation
+             noise_frame = random.choice(self.noise_frames)
+             
+             # Jitter offset
+             ox = random.randint(0, 50)
+             oy = random.randint(0, 50)
+             
+             # BLEND_ADD adds the pixel values. Since our noise is 0-50 (dark gray),
+             # this will just slightly brighten random pixels, creating grain.
+             dest.blit(noise_frame, (-ox, -oy), special_flags=pygame.BLEND_ADD)
+
+        # 3. Scanlines (CRT)
+        if Config.ENABLE_CRT and self.crt_surface:
+            dest.blit(self.crt_surface, (0, 0))
+            
+        # 4. Vignette
+        if Config.ENABLE_VIGNETTE and self.vignette_surface:
+            dest.blit(self.vignette_surface, (0, 0))
+
     def run_realtime(self):
         try:
             pygame.init()
             pygame.display.set_caption("Sonir Realtime (SPACE: Pause, Arrows: Seek, F: Fullscreen, H: UI, R: Reset)")
-            screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
+            screen = pygame.display.set_mode((self.width, self.height))
         except pygame.error as e:
             print(f"Error initializing display: {e}")
             return
@@ -413,7 +600,13 @@ class SonirRenderer:
                         paused = False
 
                 dt = clock.get_time() / 1000.0
-                self.render_frame(screen, audio_time, dt)
+                
+                # Render to offscreen canvas
+                self.render_frame(self.canvas, audio_time, dt)
+                
+                # Apply post-processing to screen
+                self._apply_post_processing(self.canvas, screen)
+                
                 pygame.display.flip()
                 clock.tick(Config.FPS)
         except KeyboardInterrupt:
@@ -441,7 +634,12 @@ class SonirRenderer:
         try:
             for i in range(total_frames):
                 audio_time = i * dt
-                self.render_frame(screen, audio_time, dt)
+                
+                # Render to canvas
+                self.render_frame(self.canvas, audio_time, dt)
+                
+                # Apply post-processing
+                self._apply_post_processing(self.canvas, screen)
                 
                 fname = os.path.join(output_dir, f"frame_{i:05d}.png")
                 pygame.image.save(screen, fname)

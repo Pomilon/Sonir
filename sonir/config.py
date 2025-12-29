@@ -36,7 +36,9 @@ class Config:
         "air": (200, 240, 255),   # Very Pale Blue
         "upper": (150, 100, 220), # Purple
         "snare": (50, 200, 100),  # Crisp Green
-        "hats": (255, 255, 200)   # Pale Yellow
+        "hats": (255, 255, 200),  # Pale Yellow
+        "chill": (140, 160, 220), # Periwinkle (LoFi)
+        "vinyl": (220, 200, 180)  # Dusty Cream (LoFi)
     }
 
     # Offsets (in seconds)
@@ -53,8 +55,19 @@ class Config:
     ENABLE_TRAILS = True
     ENABLE_GLOW = True
     
+    # Post-Processing / Shaders
+    ENABLE_CRT = False       # Scanlines
+    ENABLE_ABERRATION = False # Chromatic Aberration
+    ENABLE_NOISE = False      # Film Grain
+    ENABLE_VIGNETTE = False   # Dark corners
+    
+    # FX Intensity
+    NOISE_INTENSITY = 0.05
+    ABERRATION_OFFSET = 3
+
     # Dynamic Background
     ENABLE_DYNAMIC_BG = True
+    BG_MODE = "stars" # stars, grid, gradient, tunnel
     BG_PULSE_AMT = 8         # Subtle brightness boost on hit
     STAR_COUNT = 50          # Stars per viewport
     
@@ -162,6 +175,13 @@ class Config:
     SHAKE_INTENSITY = 28.0   # Balanced intensity
     SHAKE_DECAY = 5.0        # Snappy decay
     SHAKE_THRESHOLD = 0.91   # Trigger threshold
+
+    @staticmethod
+    def set_exact_resolution(width, height):
+        """Sets the resolution to specific dimensions."""
+        Config.WIDTH = width
+        Config.HEIGHT = height
+        print(f"Resolution set to {Config.WIDTH}x{Config.HEIGHT}")
 
     @staticmethod
     def set_resolution(aspect_ratio, base=720):

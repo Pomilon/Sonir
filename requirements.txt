@@ -3,3 +3,4 @@ librosa
 pygame
 demucs
 scipy
+yt-dlp

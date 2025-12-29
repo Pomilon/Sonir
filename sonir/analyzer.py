@@ -192,6 +192,14 @@ class ElectronicMode(FrequencyBandMode):
             ("top", 150, 8000, 1)
         ])
 
+class LoFiMode(FrequencyBandMode):
+    def __init__(self, audio_path):
+        super().__init__(audio_path, [
+            ("kick", 20, 150, 2),
+            ("chill", 150, 2000, 2),
+            ("vinyl", 2000, 10000, 1)
+        ])
+
 class CinematicMode(FrequencyBandMode):
     def __init__(self, audio_path):
         # Order implies layout in renderer (TL, TR, BL, BR, Center)

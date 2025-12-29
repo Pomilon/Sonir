@@ -28,7 +28,7 @@ It has come to my attention that automated accounts (such as `yobo1889`) are scr
   - **Stem Mode**: Automatic separation of Drums, Bass, Other, Vocals (using Demucs).
   - **Dynamic Mode**: Hybrid analysis using Harmonic-Percussive Source Separation (HPSS) + Frequency Band Splitting.
   - **Frequency Modes**: `Dual` (2-band), `Triple` (3-band), and `Quad` (4-band) splitters.
-  - **Genre Specific**: Dedicated modes for `Electronic` (Kick/Top), `Percussion` (Kick/Snare/Hats), `String` (Violin focus), and `Piano`.
+  - **Genre Specific**: Dedicated modes for `Electronic` (Kick/Top), `Percussion` (Kick/Snare/Hats), `String` (Violin focus), `Piano`, and `LoFi` (Kick/Chill/Vinyl).
   - **Cinematic**: A 5-viewport center-focus layout.
   - **Custom**: User-defined frequency bands and colors via JSON config.
 - **High-Quality Visuals**:
@@ -37,7 +37,7 @@ It has come to my attention that automated accounts (such as `yobo1889`) are scr
   - **Cinema Camera**: Dynamic camera movement that leads the action.
   - **Theming**: 5 built-in color themes (`neon`, `cyberpunk`, `noir`, `sunset`, `matrix`).
 - **Flexible Output**:
-  - **Real-time Preview**: Resizeable window with interactive controls:
+  - **Real-time Preview**: High-performance playback window (configurable resolution) with interactive controls:
     - `SPACE`: Pause/Resume
     - `Arrows`: Seek -5s/+5s
     - `F`: Toggle Fullscreen
@@ -95,6 +95,12 @@ The unified entry point is `main.py`.
 python main.py --audio "piano.mp3" --mode piano
 ```
 
+**Online Stream Support (YouTube/SoundCloud)**
+Directly visualize audio from a URL. The audio will be downloaded and cached automatically.
+```bash
+python main.py --audio "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --mode electronic
+```
+
 **Stem Mode (Source Separation)**
 *Automatically runs Demucs to split the track into 4 stems.*
 ```bash
@@ -123,9 +129,21 @@ python main.py --audio "concerto.mp3" --mode string
 python main.py --audio "song.mp3" --mode cinematic --aspect 9:16 --theme cyberpunk
 ```
 
+**Custom Resolution (Overrides Aspect Ratio)**
+Set a fixed window size (e.g., for specific projector or screen setups).
+```bash
+python main.py --audio "song.mp3" --mode quad --resolution 1920x1080
+```
+
 **Square Video (Instagram) with Noir Theme**
 ```bash
 python main.py --audio "jazz.mp3" --mode triple --aspect 1:1 --theme noir
+```
+
+**Background Modes**
+Choose from `stars` (default), `grid` (synthwave), `gradient`, `tunnel`, or `flow`.
+```bash
+python main.py --audio "song.mp3" --bg grid --theme cyberpunk
 ```
 
 ### 3. Custom Configuration
@@ -181,24 +199,6 @@ python main.py --audio "song.mp3" --mode dual --gamify rhythm
 python main.py --audio "song.mp3" --mode quad --gamify rhythm --modifiers death chaos
 ```
 
-### 2. Geometry Dash Mode
-A side-scrolling physics platformer generated from the music's energy.
-*   **Mechanics**:
-    *   **Cube**: Jump (`Space` / `Up` / `Click`) to avoid spikes and blocks.
-    *   **Ship**: Hold `Space` to fly. Spawns in high-energy sections.
-    *   **Ball**: Click to flip gravity.
-    *   **Items**: Jump Orbs (Yellow) and Mode Portals.
-*   **Physics**: Tuned for a heavy, realistic feel similar to the original game.
-
-```bash
-python main.py --audio "song.mp3" --mode electronic --gamify gd
-```
-
-**Autoplay:**
-Want to watch the bot play perfectly? Add `--autoplay`.
-```bash
-python main.py --audio "song.mp3" --mode electronic --gamify gd --autoplay
-```
 
 ### 4. Export to Video
 
@@ -222,6 +222,10 @@ python main.py --audio "song.mp3" --mode stem --export --encoder libx264 --crf 1
 - `--no-bg`: Disable dynamic background.
 - `--no-cam`: Disable cinema camera movement.
 - `--no-ui`: Hide the progress bar overlay.
+- `--crt`: Enable CRT/Scanline post-processing effect.
+- `--aberration`: Enable Chromatic Aberration (RGB split).
+- `--noise`: Enable Film Grain/Noise overlay.
+- `--vhs`: Enable full VHS suite (CRT + Aberration + Noise + Vignette).
 
 ## Project Structure
 

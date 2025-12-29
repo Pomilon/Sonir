@@ -8,33 +8,35 @@ from .config import Config
 from .analyzer import (
     StemMode, PianoMode, QuadBandMode, DualBandMode, ElectronicMode, 
     TripleBandMode, StringMode, CinematicMode, PercussionMode, DynamicMode,
-    CustomMode
+    CustomMode, LoFiMode
 )
 from .core import SonirCore
 from .renderer import SonirRenderer
 from .video import VideoGenerator
 from .game import RhythmGame
-from .gd import GeometryDashGame
+from .downloader import AudioDownloader
 
 def main():
     parser = argparse.ArgumentParser(description="Sonir: Modular Audio Visualizer Engine")
-    parser.add_argument("--audio", required=True, help="Path to the input audio file")
+    parser.add_argument("--audio", required=True, help="Path to input audio file OR URL (YouTube/SoundCloud)")
     
     # Updated Mode Choices
     mode_choices = [
         "stem", "dynamic", "piano", "string", "percussion", 
-        "dual", "triple", "quad", "electronic", "cinematic", "custom"
+        "dual", "triple", "quad", "electronic", "cinematic", "custom", "lofi"
     ]
     parser.add_argument("--mode", choices=mode_choices, default="stem", help="Visualization mode")
     parser.add_argument("--config", help="Path to custom configuration file (required for --mode custom)")
     
     # Gamification
-    parser.add_argument("--gamify", choices=["rhythm", "gd"], help="Convert visualization into a game level")
+    parser.add_argument("--gamify", choices=["rhythm"], help="Convert visualization into a game level")
     parser.add_argument("--modifiers", nargs="+", choices=["focus", "death", "chaos"], help="Game modifiers (e.g., focus, death, chaos)")
     parser.add_argument("--autoplay", action="store_true", help="Let the game play itself (for testing or visualization)")
     
     parser.add_argument("--theme", choices=["neon", "cyberpunk", "noir", "sunset", "matrix"], default="neon", help="Color theme")
+    parser.add_argument("--bg", choices=["stars", "grid", "gradient", "tunnel", "flow"], default="stars", help="Dynamic background mode")
     parser.add_argument("--aspect", choices=["16:9", "9:16", "1:1", "4:3", "21:9"], default="16:9", help="Output aspect ratio (default: 16:9)")
+    parser.add_argument("--resolution", help="Custom resolution in WxH format (e.g., 1920x1080). Overrides --aspect.")
     parser.add_argument("--export", action="store_true", help="Render to video file instead of realtime preview")
     parser.add_argument("--output", default="output.mp4", help="Output filename for export")
     parser.add_argument("--no-shake", action="store_true", help="Disable screen shake effects")
@@ -44,12 +46,26 @@ def main():
     parser.add_argument("--no-bg", action="store_true", help="Disable dynamic background (stars/pulse)")
     parser.add_argument("--no-cam", action="store_true", help="Disable cinema camera lookahead")
     parser.add_argument("--no-ui", action="store_true", help="Disable UI overlay")
+    parser.add_argument("--crt", action="store_true", help="Enable CRT/Scanline post-processing effect")
+    parser.add_argument("--aberration", action="store_true", help="Enable Chromatic Aberration")
+    parser.add_argument("--noise", action="store_true", help="Enable Film Grain/Noise")
+    parser.add_argument("--vhs", action="store_true", help="Enable full VHS suite (CRT + Aberration + Noise + Vignette)")
     
     args = parser.parse_args()
     
     # Configure Resolution & FX
-    Config.set_resolution(args.aspect)
+    if args.resolution:
+        try:
+            w, h = map(int, args.resolution.lower().split('x'))
+            Config.set_exact_resolution(w, h)
+        except ValueError:
+            print("Error: Invalid resolution format. Use WxH (e.g., 1920x1080).")
+            sys.exit(1)
+    else:
+        Config.set_resolution(args.aspect)
+
     Config.apply_theme(args.theme)
+    Config.BG_MODE = args.bg
     
     if args.no_shake: Config.ENABLE_SHAKE = False
     if args.no_particles: Config.ENABLE_PARTICLES = False
@@ -58,6 +74,26 @@ def main():
     if args.no_bg: Config.ENABLE_DYNAMIC_BG = False
     if args.no_cam: Config.ENABLE_CINEMA_CAM = False
     if args.no_ui: Config.ENABLE_UI = False
+    
+    # FX Flags
+    if args.crt: Config.ENABLE_CRT = True
+    if args.aberration: Config.ENABLE_ABERRATION = True
+    if args.noise: Config.ENABLE_NOISE = True
+    
+    if args.vhs:
+        Config.ENABLE_CRT = True
+        Config.ENABLE_ABERRATION = True
+        Config.ENABLE_NOISE = True
+        Config.ENABLE_VIGNETTE = True
+    
+    # Check for URL
+    if AudioDownloader.is_url(args.audio):
+        print(f"Detected URL: {args.audio}")
+        local_path = AudioDownloader.download(args.audio)
+        if not local_path or not os.path.exists(local_path):
+            print("Error: Failed to download audio from URL.")
+            sys.exit(1)
+        args.audio = local_path
     
     if not os.path.exists(args.audio):
         print(f"Error: Audio file '{args.audio}' not found.")
@@ -85,7 +121,8 @@ def main():
             "string": StringMode,
             "cinematic": CinematicMode,
             "percussion": PercussionMode,
-            "dynamic": DynamicMode
+            "dynamic": DynamicMode,
+            "lofi": LoFiMode
         }
         analyzer = analyzers[args.mode](args.audio)
     
@@ -130,9 +167,6 @@ def main():
         if args.gamify == "rhythm":
             print(f"Starting Rhythm Game (Mode: {args.gamify}, Modifiers: {args.modifiers})...")
             renderer = RhythmGame(processed_tracks, args.audio, modifiers=args.modifiers, autoplay=args.autoplay)
-        elif args.gamify == "gd":
-            print(f"Starting Geometry Dash Mode...")
-            renderer = GeometryDashGame(processed_tracks, args.audio, autoplay=args.autoplay)
         else:
             renderer = SonirRenderer(processed_tracks, args.audio)
         
